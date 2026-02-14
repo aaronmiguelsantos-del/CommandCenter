@@ -1,1 +1,4 @@
-# Add runtime dependencies here
+streamlit==1.42.0
+pydantic==2.10.6
+PyYAML==6.0.2
+pandas==2.2.3
