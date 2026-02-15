@@ -164,7 +164,12 @@ def _system_add(system_id: str, name: str) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        if exc.code == 2:
+            return 1
+        raise
 
     if args.command == "init":
         created = bootstrap_repo()
@@ -230,8 +235,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         _emit_health_snapshot()
         return 0
 
-    parser.error("Unknown command.")
-    return 2
+    try:
+        parser.error("Unknown command.")
+    except SystemExit as exc:
+        if exc.code == 2:
+            return 1
+        raise
+    return 1
 
 
 if __name__ == "__main__":
