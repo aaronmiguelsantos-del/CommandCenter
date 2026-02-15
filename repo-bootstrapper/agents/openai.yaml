@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Repo Bootstrapper
+  short_description: Generate deterministic Python scaffolds with basic, Streamlit, or Flask stacks.
+  default_prompt: Bootstrap a low-entropy Python repository with one-command execution, smoke tests, and safe merge behavior.
