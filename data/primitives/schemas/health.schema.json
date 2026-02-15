@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Health",
+  "type": "object",
+  "required": [
+    "ts",
+    "score_total"
+  ],
+  "properties": {
+    "ts": {
+      "type": "string"
+    },
+    "score_total": {
+      "type": "number"
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,2 @@
+{"event_id": "ops-core-evt-000001", "event_type": "registered", "payload": {}, "system_id": "ops-core", "ts": "2026-02-14T22:52:43Z"}
+{"event_id": "ops-core-evt-000002", "event_type": "status_update", "payload": {}, "system_id": "ops-core", "ts": "2026-02-15T01:31:36Z"}

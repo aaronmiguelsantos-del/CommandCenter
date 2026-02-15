@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Event",
+  "type": "object",
+  "required": [
+    "event_id",
+    "system_id",
+    "event_type",
+    "ts"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string"
+    },
+    "system_id": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string"
+    },
+    "ts": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

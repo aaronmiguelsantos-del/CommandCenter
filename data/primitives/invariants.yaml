@@ -1,0 +1,10 @@
+version: 1
+invariants:
+  - id: contracts_have_system_id
+    description: Every contract file has a non-empty system_id.
+  - id: events_have_type
+    description: Every event has a non-empty event_type.
+  - id: INV-003
+    statement: "Every system contract declares >=3 primitives_used."
+    severity: "high"
+    verify: "Contract JSON contains primitives_used array length >= 3."
