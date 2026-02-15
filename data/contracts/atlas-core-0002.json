@@ -1,0 +1,19 @@
+{
+  "contract_id": "atlas-core-0002",
+  "created_at": "2026-02-14T15:46:14Z",
+  "invariants": [
+    "INV-001 ...",
+    "INV-002 ...",
+    "INV-003 ..."
+  ],
+  "name": "Atlas Core",
+  "primitives_used": [
+    "P0 System Contract",
+    "P1 Invariant Registry",
+    "P7 State & Audit Log"
+  ],
+  "status": "active",
+  "system_id": "atlas-core",
+  "updated_at": "2026-02-14T15:46:14Z",
+  "version": "0.1.0"
+}

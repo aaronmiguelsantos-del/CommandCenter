@@ -1,0 +1,44 @@
+{
+  "ts": "2026-02-15T01:45:54.889207Z",
+  "status": "red",
+  "score_total": 41.0,
+  "violations": [
+    "INVARIANTS_MIN",
+    "PRIMITIVES_MIN"
+  ],
+  "counts": {
+    "contracts": 5,
+    "events": 4,
+    "invariants": 3,
+    "schemas": 3
+  },
+  "scores": {
+    "contracts": 100.0,
+    "events": 70.0,
+    "primitives": 100.0
+  },
+  "per_system": [
+    {
+      "system_id": "atlas-core",
+      "primitives_ok": true,
+      "invariants_ok": true,
+      "events_recent_ok": true
+    },
+    {
+      "system_id": "demo-sys",
+      "primitives_ok": false,
+      "invariants_ok": false,
+      "events_recent_ok": true
+    },
+    {
+      "system_id": "ops-core",
+      "primitives_ok": true,
+      "invariants_ok": true,
+      "events_recent_ok": true
+    }
+  ],
+  "snapshot_files": {
+    "latest": "data/snapshots/health_latest.json",
+    "history": "data/snapshots/health_history.jsonl"
+  }
+}

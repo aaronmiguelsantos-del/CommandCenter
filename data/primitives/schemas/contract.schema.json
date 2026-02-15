@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Contract",
+  "type": "object",
+  "required": [
+    "contract_id",
+    "system_id",
+    "name"
+  ],
+  "properties": {
+    "contract_id": {
+      "type": "string"
+    },
+    "system_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

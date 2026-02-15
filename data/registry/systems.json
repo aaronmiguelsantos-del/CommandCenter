@@ -1,0 +1,21 @@
+{
+  "systems": [
+    {
+      "system_id": "atlas-core",
+      "contracts_glob": "data/contracts/atlas-core-*.json",
+      "events_glob": "data/logs/atlas-core-*.jsonl"
+    },
+    {
+      "system_id": "demo-sys",
+      "contracts_glob": "data/contracts/demo-sys-*.json",
+      "events_glob": "data/logs/demo-sys-events.jsonl",
+      "is_sample": true,
+      "notes": "Intentionally broken sample system used to prove health checks go red."
+    },
+    {
+      "system_id": "ops-core",
+      "contracts_glob": "data/contracts/ops-core-*.json",
+      "events_glob": "data/logs/ops-core-events.jsonl"
+    }
+  ]
+}

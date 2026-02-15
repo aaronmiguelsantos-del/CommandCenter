@@ -1,191 +1,223 @@
-"""Minimal CLI for Aaron Command Center v0.1."""
-
 from __future__ import annotations
 
 import argparse
-import re
-import sys
+import json
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
+from typing import Sequence
 
-
-DEFAULT_MODULES = ("creativity", "exports")
-EXCLUDE_DIR_NAMES = {".git", "__pycache__", ".pytest_cache", ".venv", "venv", "dist"}
-EXCLUDE_FILE_SUFFIXES = {".pyc", ".pyo"}
+from core.bootstrap import bootstrap_repo
+from core.health import compute_and_write_health, compute_health_for_system
+from core.registry import load_registry, upsert_system
+from core.reporting import compute_report, format_text, load_history
+from core.storage import append_event, create_contract
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python3 -m app.main", description="Aaron Command Center CLI")
-    subparsers = parser.add_subparsers(dest="command")
-
-    subparsers.add_parser("help", help="Show command help")
-    subparsers.add_parser("list", help="List available modules")
-
-    run_parser = subparsers.add_parser("run", help="Run a module action")
-    run_parser.add_argument("module", help="Module name, e.g. creativity or exports")
-    run_parser.add_argument("action", help="Action name, e.g. status or bundle")
-    run_parser.add_argument("target", nargs="?", help="Optional run target, e.g. prompt name")
-    run_parser.add_argument("--name", help="Optional bundle name for exports")
-    run_parser.add_argument(
-        "--input",
-        help="Input payload as raw text or a file path with key: value lines to fill prompt templates",
+    parser = argparse.ArgumentParser(
+        prog="bootstrapping-engine",
+        description="Bootstrapping Engine v0.1 CLI",
     )
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
+    subparsers.add_parser("init", help="Create required folders and primitive baseline files if missing.")
+
+    health_cmd = subparsers.add_parser("health", help="Compute health and write latest + history snapshots.")
+    health_cmd.add_argument("--all", action="store_true", help="Compute per-system health from registry globs.")
+    health_cmd.add_argument("--registry", default=None, help="Optional path to systems registry JSON.")
+    health_cmd.add_argument("--json", action="store_true", help="Print --all output as JSON.")
+    health_cmd.add_argument("--strict", action="store_true", help="Exit non-zero if any non-sample system is red (with --all).")
+
+    contract = subparsers.add_parser("contract", help="Contract commands.")
+    contract_sub = contract.add_subparsers(dest="contract_command", required=True)
+    contract_new = contract_sub.add_parser("new", help='Create a new contract: contract new <system_id> "<name>"')
+    contract_new.add_argument("system_id", help="System identifier for the contract.")
+    contract_new.add_argument("name", help="Contract name.")
+
+    log_cmd = subparsers.add_parser("log", help="Append an event record.")
+    log_cmd.add_argument("system_id", help="System identifier for the event.")
+    log_cmd.add_argument("event_type", help="Event type.")
+
+    system_cmd = subparsers.add_parser("system", help="System registry commands.")
+    system_sub = system_cmd.add_subparsers(dest="system_command", required=True)
+    system_add = system_sub.add_parser("add", help='Register a system: system add <system_id> "<name>"')
+    system_add.add_argument("system_id", help="System identifier.")
+    system_add.add_argument("name", help="System display name used for initial contract creation.")
+    system_sub.add_parser("list", help="List systems with health rollup.")
+
+    report_cmd = subparsers.add_parser("report", help="Meta-report commands.")
+    report_sub = report_cmd.add_subparsers(dest="report_command", required=True)
+    report_health = report_sub.add_parser("health", help="Generate health report from snapshot history.")
+    report_health.add_argument("--days", type=int, default=30, help="Analyze snapshots within last N days.")
+    report_health.add_argument("--tail", type=int, default=2000, help="Max history lines read from JSONL.")
+    report_health.add_argument("--json", action="store_true", help="Print report as JSON.")
+    report_health.add_argument("--strict", action="store_true", help="Exit non-zero if strict readiness fails now.")
+    report_health.add_argument("--no-hints", action="store_true", help="Disable action hints in report output.")
+    report_health.add_argument("--registry", default=None, help="Optional path to systems registry JSON.")
+
+    subparsers.add_parser("run", help="One-command run: init then health.")
     return parser
 
 
-def list_modules() -> int:
-    print("Available modules:")
-    for module in DEFAULT_MODULES:
-        print(f"- {module}")
-    return 0
+def _emit_health_snapshot() -> None:
+    payload, snapshot_files = compute_and_write_health()
+    print(
+        json.dumps(
+            {
+                "status": payload["status"],
+                "score_total": payload["score_total"],
+                "violations": payload["violations"],
+                "violations_display": ",".join(payload["violations"]) if payload["violations"] else "none",
+                "global_includes_samples": False,
+                "snapshot_files": snapshot_files,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
-def create_bundle(repo_root: Path, bundle_name: str) -> Path:
-    dist_dir = repo_root / "dist"
-    dist_dir.mkdir(parents=True, exist_ok=True)
-
-    output_name = bundle_name if bundle_name.endswith(".zip") else f"{bundle_name}.zip"
-    output_zip = dist_dir / output_name
-
-    with ZipFile(output_zip, "w", compression=ZIP_DEFLATED) as archive:
-        for path in repo_root.rglob("*"):
-            if path.is_dir():
-                continue
-
-            rel = path.relative_to(repo_root)
-
-            if any(part in EXCLUDE_DIR_NAMES for part in rel.parts):
-                continue
-            if path.suffix in EXCLUDE_FILE_SUFFIXES:
-                continue
-            if path.suffix == ".zip" and "dist" in rel.parts:
-                continue
-
-            archive.write(path, rel.as_posix())
-
-    return output_zip
+def _health_payloads(registry_path: str | None) -> list[dict]:
+    out: list[dict] = []
+    for spec in load_registry(registry_path):
+        payload = compute_health_for_system(spec.system_id, spec.contracts_glob, spec.events_glob)
+        payload = {"system_id": spec.system_id, **payload}
+        out.append(payload)
+    return out
 
 
-def list_prompts(repo_root: Path) -> list[Path]:
-    prompt_root = repo_root / "prompt-library"
-    if not prompt_root.exists():
-        return []
-    return sorted(prompt_root.rglob("*.md"))
+def _health_rows(registry_path: str | None) -> list[tuple[str, str, float, str, bool]]:
+    rows: list[tuple[str, str, float, str, bool]] = []
+    for spec in load_registry(registry_path):
+        payload = compute_health_for_system(spec.system_id, spec.contracts_glob, spec.events_glob)
+        violations = ",".join(payload["violations"]) if payload["violations"] else "none"
+        rows.append((spec.system_id, payload["status"], float(payload["score_total"]), violations, spec.is_sample))
+    return rows
 
 
-def normalize_prompt_name(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+def _has_non_sample_red(registry_path: str | None) -> bool:
+    for _system_id, status, _score_total, _violations, is_sample in _health_rows(registry_path):
+        if not is_sample and status == "red":
+            return True
+    return False
 
 
-def resolve_prompt_file(repo_root: Path, prompt_name: str) -> Path | None:
-    wanted = normalize_prompt_name(prompt_name)
-    for path in list_prompts(repo_root):
-        if normalize_prompt_name(path.stem) == wanted:
-            return path
-    return None
+def _emit_health_all(registry_path: str | None, as_json: bool) -> None:
+    payloads = _health_payloads(registry_path)
+    if as_json:
+        systems = [
+            {
+                "system_id": p["system_id"],
+                "status": p["status"],
+                "score_total": p["score_total"],
+                "violations": p["violations"],
+                "counts": p["counts"],
+                "scores": p["scores"],
+                "per_system": p.get("per_system", []),
+            }
+            for p in payloads
+        ]
+        print(json.dumps({"systems": systems}, indent=2, sort_keys=True))
+        return
+
+    print("system_id | status | score_total | violations | sample")
+    print("-" * 80)
+    for system_id, status, score_total, violations, is_sample in _health_rows(registry_path):
+        sample = "yes" if is_sample else "no"
+        print(f"{system_id} | {status} | {score_total:.2f} | {violations} | {sample}")
 
 
-def parse_input_payload(payload: str | None) -> dict[str, str]:
-    if not payload:
-        return {}
+def _emit_report_health(days: int, tail: int, as_json: bool, strict: bool, registry_path: str | None, include_hints: bool) -> int:
+    history_path = Path("data/snapshots/health_history.jsonl")
+    if not history_path.exists() or not load_history(tail=1):
+        print("No health history found at data/snapshots/health_history.jsonl")
+        return 0
 
-    path = Path(payload)
-    if path.exists() and path.is_file():
-        raw = path.read_text(encoding="utf-8")
+    report = compute_report(days=days, tail=tail, strict=strict, registry_path=registry_path, include_hints=include_hints)
+    if as_json:
+        print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        raw = payload
+        print(format_text(report, days=days))
 
-    fields: dict[str, str] = {}
-    for line in raw.splitlines():
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        key = key.strip().lower()
-        value = value.strip()
-        if key:
-            fields[key] = value
-    return fields
-
-
-def apply_fields_to_template(template_text: str, fields: dict[str, str]) -> str:
-    if not fields:
-        return template_text
-
-    output_lines: list[str] = []
-    for line in template_text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("- ") and ":" in stripped:
-            original_key = stripped[2:].split(":", 1)[0].strip()
-            normalized_key = original_key.lower()
-            if normalized_key in fields:
-                prefix = line[: line.find("- ") + 2]
-                output_lines.append(f"{prefix}{original_key}: {fields[normalized_key]}")
-                continue
-        output_lines.append(line)
-    return "\n".join(output_lines) + ("\n" if template_text.endswith("\n") else "")
-
-
-def run_prompt(repo_root: Path, prompt_name: str | None, payload: str | None) -> int:
-    if not prompt_name:
-        prompts = list_prompts(repo_root)
-        if not prompts:
-            print("no prompt templates found under prompt-library/", file=sys.stderr)
-            return 1
-        print("available prompts:")
-        for path in prompts:
-            print(f"- {path.stem}")
-        return 0
-
-    prompt_file = resolve_prompt_file(repo_root, prompt_name)
-    if prompt_file is None:
-        print(f"prompt not found: {prompt_name!r}", file=sys.stderr)
-        return 1
-
-    fields = parse_input_payload(payload)
-    template = prompt_file.read_text(encoding="utf-8")
-    rendered = apply_fields_to_template(template, fields)
-
-    print(f"# Prompt: {prompt_file.stem}")
-    print(f"# Source: {prompt_file.relative_to(repo_root)}")
-    print()
-    print(rendered)
+    if strict and not report["summary"]["strict_ready_now"]:
+        return 2
     return 0
 
 
-def run_command(module: str, action: str, target: str | None, name: str | None, payload: str | None) -> int:
-    repo_root = Path.cwd()
+def _system_add(system_id: str, name: str) -> None:
+    contracts_glob = f"data/contracts/{system_id}-*.json"
+    events_glob = f"data/logs/{system_id}-events.jsonl"
 
-    if module == "creativity" and action == "status":
-        print("creativity: placeholder module is available")
-        return 0
-    if module == "creativity" and action == "prompt":
-        return run_prompt(repo_root, target, payload)
+    changed = upsert_system(system_id, contracts_glob, events_glob)
 
-    if module == "exports" and action == "bundle":
-        bundle_name = name or "aaron-command-center-v0.1"
-        output_zip = create_bundle(repo_root, bundle_name)
-        print(f"bundle created: {output_zip}")
-        return 0
+    if not any(Path().glob(contracts_glob)):
+        create_contract(system_id=system_id, name=name)
 
-    print(f"unsupported run target: module={module!r} action={action!r}", file=sys.stderr)
-    return 1
+    if changed:
+        append_event(system_id=system_id, event_type="registered")
+        print(json.dumps({"system_id": system_id, "message": "registered"}, indent=2, sort_keys=True))
+    else:
+        print(json.dumps({"system_id": system_id, "message": "already exists"}, indent=2, sort_keys=True))
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    if args.command in (None, "help"):
-        parser.print_help()
+    if args.command == "init":
+        created = bootstrap_repo()
+        print(json.dumps({"created": [str(p) for p in created]}, indent=2, sort_keys=True))
+        _emit_health_snapshot()
         return 0
-    if args.command == "list":
-        return list_modules()
-    if args.command == "run":
-        return run_command(args.module, args.action, args.target, args.name, args.input)
 
-    parser.print_help()
-    return 1
+    if args.command == "health":
+        if args.all:
+            _emit_health_all(args.registry, args.json)
+            if args.strict and _has_non_sample_red(args.registry):
+                return 2
+        else:
+            _emit_health_snapshot()
+        return 0
+
+    if args.command == "contract":
+        if args.contract_command == "new":
+            bootstrap_repo()
+            path = create_contract(system_id=args.system_id, name=args.name)
+            print(json.dumps({"contract_path": str(path)}, indent=2, sort_keys=True))
+            _emit_health_snapshot()
+            return 0
+        parser.error("Unknown contract command.")
+
+    if args.command == "log":
+        bootstrap_repo()
+        event = append_event(system_id=args.system_id, event_type=args.event_type)
+        print(json.dumps({"event": event}, indent=2, sort_keys=True))
+        _emit_health_snapshot()
+        return 0
+
+    if args.command == "system":
+        bootstrap_repo()
+        if args.system_command == "add":
+            _system_add(args.system_id, args.name)
+            return 0
+        if args.system_command == "list":
+            _emit_health_all(None, as_json=False)
+            return 0
+        parser.error("Unknown system command.")
+
+    if args.command == "report":
+        bootstrap_repo()
+        if args.report_command == "health":
+            return _emit_report_health(args.days, args.tail, args.json, args.strict, args.registry, include_hints=not args.no_hints)
+        parser.error("Unknown report command.")
+
+    if args.command == "run":
+        created = bootstrap_repo()
+        print(json.dumps({"created": [str(p) for p in created]}, indent=2, sort_keys=True))
+        _emit_health_snapshot()
+        return 0
+
+    parser.error("Unknown command.")
+    return 2
 
 
 if __name__ == "__main__":

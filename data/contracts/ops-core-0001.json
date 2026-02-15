@@ -1,0 +1,19 @@
+{
+  "contract_id": "ops-core-0001",
+  "created_at": "2026-02-14T22:52:43Z",
+  "invariants": [
+    "INV-001",
+    "INV-002",
+    "INV-003"
+  ],
+  "name": "Ops Core",
+  "primitives_used": [
+    "P0",
+    "P1",
+    "P7"
+  ],
+  "status": "active",
+  "system_id": "ops-core",
+  "updated_at": "2026-02-14T22:52:43Z",
+  "version": "0.1.0"
+}
