@@ -91,13 +91,11 @@ Validation rules:
 
 ### 3.2 Contract JSON schema
 Minimum required fields must be validated (exact schema as implemented).
-Hard requirements for discipline checks:
-- `primitives_used >= 3`
-- `invariants >= 3`
+Validate checks presence + type:
+- `primitives_used` exists and is list
+- `invariants` exists and is list
 
-Violations:
-- `PRIMITIVES_MIN`
-- `INVARIANTS_MIN`
+Minimum lengths are enforced by health discipline (`PRIMITIVES_MIN`, `INVARIANTS_MIN`).
 
 ### 3.3 Event JSONL schema
 Each event row must validate:
@@ -217,8 +215,11 @@ Kernel must provide deterministic validation that fails fast with exit code `1`.
 Minimum checks:
 - Registry schema valid + unique system_id
 - Contract files parse + required fields
+- Contract list-field checks: `primitives_used` and `invariants` exist and are lists
 - Event files parse + required `ts`
 - No crash on missing globs; surface deterministic error messages
+
+Minimum list lengths are enforced by health discipline (`PRIMITIVES_MIN`, `INVARIANTS_MIN`), not by `validate`.
 
 This may be implemented as:
 - `python -m app.main validate`

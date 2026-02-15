@@ -10,6 +10,7 @@ from core.health import compute_and_write_health, compute_health_for_system
 from core.registry import load_registry, upsert_system
 from core.reporting import compute_report, format_text, load_history
 from core.storage import append_event, create_contract
+from core.validate import validate_repo
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -53,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     report_health.add_argument("--strict", action="store_true", help="Exit non-zero if strict readiness fails now.")
     report_health.add_argument("--no-hints", action="store_true", help="Disable action hints in report output.")
     report_health.add_argument("--registry", default=None, help="Optional path to systems registry JSON.")
+
+    subparsers.add_parser("validate", help="Validate registry, schema, globs, and event timestamps.")
 
     subparsers.add_parser("run", help="One-command run: init then health.")
     return parser
@@ -209,6 +212,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.report_command == "health":
             return _emit_report_health(args.days, args.tail, args.json, args.strict, args.registry, include_hints=not args.no_hints)
         parser.error("Unknown report command.")
+
+
+    if args.command == "validate":
+        bootstrap_repo()
+        errors = validate_repo()
+        if errors:
+            for err in errors:
+                print(err)
+            return 1
+        print("VALIDATE_OK")
+        return 0
 
     if args.command == "run":
         created = bootstrap_repo()

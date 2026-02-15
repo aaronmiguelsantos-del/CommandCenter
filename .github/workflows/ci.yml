@@ -34,6 +34,11 @@ jobs:
           . .venv/bin/activate
           python -m app.main report health
 
+      - name: Validate
+        run: |
+          . .venv/bin/activate
+          python -m app.main validate
+
       - name: Strict governance gate
         run: |
           . .venv/bin/activate

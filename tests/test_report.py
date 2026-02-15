@@ -90,6 +90,7 @@ def test_compute_report_delta_frequency_and_strict_ready(tmp_path: Path, monkeyp
 
     report = compute_report(days=30, tail=2000, strict=True)
 
+    assert report["report_version"] == "1.0"
     assert report["summary"]["snapshots_analyzed"] == 3
     assert report["summary"]["strict_ready_now"] is True
     assert report["summary"]["now_non_sample"]["status"] == "green"
@@ -177,7 +178,8 @@ def test_report_health_json_command_outputs_sections(tmp_path: Path, monkeypatch
     assert app_main(["report", "health", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
 
-    assert set(payload.keys()) == {"summary", "trend", "violations", "systems", "hints"}
+    assert set(payload.keys()) == {"report_version", "summary", "trend", "violations", "systems", "hints"}
+    assert payload["report_version"] == "1.0"
     assert "now_non_sample" in payload["summary"]
     assert "hints_count" in payload["summary"]
     assert isinstance(payload["systems"]["status"], list)
@@ -392,3 +394,10 @@ def test_sample_systems_never_appear_in_drift_attribution(tmp_path: Path, monkey
     top = report.get("summary", {}).get("top_drift_24h")
     if top:
         assert "sample-red" not in top
+
+
+def test_report_json_includes_version() -> None:
+    report = compute_report()
+
+    assert "report_version" in report
+    assert report["report_version"] == "1.0"

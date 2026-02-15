@@ -1,44 +1,37 @@
-# Bootstrapping Engine v0.1
+# Codex Kernel (Bootstrapping Engine)
 
-Local-first operator repo with deterministic CLI workflows for bootstrapping primitives, creating contracts, logging events, and computing meta-health snapshots on every command.
+Deterministic, local-first operator kernel for multi-system governance.
 
-## Requirements
+## What It Is
+- Registry-driven system governance (`data/registry/systems.json`)
+- Per-system health + strict gate (`health --all --strict`)
+- Local snapshots + JSONL history under `/data`
+- Deterministic reporting (`report health`, `report health --json`)
 
-- Python 3.11+
+## What It Is Not
+- No cloud/runtime service
+- No web UI/dashboard requirement
+- No background daemons
+- No Docker requirement
 
-## Install
-
+## Quick Run
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+. .venv/bin/activate
 pip install -r requirements.txt
-```
 
-## One-command run
-
-```bash
-python -m app.main run
-```
-
-## CLI commands
-
-```bash
-python -m app.main --help
 python -m app.main init
-python -m app.main health
-python -m app.main contract new bootstrap-core "Bootstrapping Engine Core Contract"
-python -m app.main log bootstrap-core status_update
+python -m app.main health --all
+python -m app.main report health
+python -m app.main validate
+python -m app.main health --all --strict
 ```
 
-## Data outputs
-
-- `data/contracts/*.json`
-- `data/logs/events.jsonl`
-- `data/snapshots/health_latest.json`
-- `data/snapshots/health_history.jsonl`
-
-## Test
-
+## Tests
 ```bash
 pytest -q
 ```
+
+## Docs
+- `docs/V1_ACCEPTANCE.md`
+- `docs/CLI.md`

@@ -1,9 +1,7 @@
 {
   "contract_id": "demo-sys-0001",
-  "created_at": "2026-02-14T23:01:27Z",
-  "name": "Demo",
-  "status": "active",
   "system_id": "demo-sys",
-  "updated_at": "2026-02-14T23:01:27Z",
-  "version": "0.1.0"
+  "name": "Demo system contract (intentionally non-compliant)",
+  "primitives_used": ["schema:a", "schema:b"],
+  "invariants": ["inv:a", "inv:b"]
 }

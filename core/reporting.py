@@ -331,8 +331,13 @@ def _build_hints(current_systems: list[dict[str, Any]], snapshot_status: str, in
                 freq[key] += 1
                 affected_by_violation.setdefault(key, set()).add(system_id)
 
+        top = sorted(
+            freq.items(),
+            key=lambda kv: (-kv[1], kv[0]),
+        )[:2]
+
         hints: list[dict[str, Any]] = []
-        for code, _count in freq.most_common(2):
+        for code, _count in top:
             tpl = _hint_template(code)
             hints.append(
                 {
@@ -480,6 +485,7 @@ def compute_report(
                 top_drift_line = " | ".join(f"{sid} -{drop}" for sid, drop in contributors)
 
     report = {
+        "report_version": "1.0",
         "summary": {
             "snapshots_analyzed": len(analyzed),
             "date_range": {
