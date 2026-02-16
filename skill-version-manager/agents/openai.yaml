@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Skill Version Manager
+  short_description: Bump semver for skills and append deterministic release records.
+  default_prompt: Bump a skill version and record release metadata with migration notes.

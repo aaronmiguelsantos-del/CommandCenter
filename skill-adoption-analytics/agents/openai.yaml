@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Skill Adoption Analytics
+  short_description: Compute usage, reliability, and ROI rankings for skills from JSONL events.
+  default_prompt: Analyze skill usage events and generate a deterministic ROI-ranked adoption report.

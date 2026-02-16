@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Skill Regression Runner
+  short_description: Run skill command suites and detect output drift against golden snapshots.
+  default_prompt: Run deterministic regression suites for skills and fail on snapshot drift.

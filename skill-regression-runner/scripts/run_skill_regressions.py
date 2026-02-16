@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Run regression suites for skills and compare with golden snapshots."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+from typing import Any, Dict, List, Tuple
+
+
+class RegressionError(Exception):
+    pass
+
+
+def _run(cmd: List[str], cwd: Path, timeout: int = 120) -> Tuple[int, str, str]:
+    try:
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
+        return int(proc.returncode), proc.stdout or "", proc.stderr or ""
+    except Exception as err:
+        return 99, "", f"RUNNER_ERROR: {err}"
+
+
+def _is_skill_dir(path: Path) -> bool:
+    return (path / "SKILL.md").exists() and (path / "agents" / "openai.yaml").exists()
+
+
+def _discover_skill_dirs(source_root: Path) -> List[Path]:
+    skills: List[Path] = []
+    for child in sorted(source_root.iterdir()):
+        if child.is_dir() and _is_skill_dir(child):
+            skills.append(child)
+    return skills
+
+
+def _load_suite(skill_dir: Path) -> List[Dict[str, Any]]:
+    suite_path = skill_dir / "tests" / "regression_suite.json"
+    if not suite_path.exists():
+        return []
+    try:
+        obj = json.loads(suite_path.read_text(encoding="utf-8"))
+    except Exception as err:
+        raise RegressionError(f"invalid suite for {skill_dir.name}: {err}")
+    if not isinstance(obj, dict) or not isinstance(obj.get("cases"), list):
+        raise RegressionError(f"invalid suite schema for {skill_dir.name}: expected object with cases[]")
+    return [c for c in obj["cases"] if isinstance(c, dict)]
+
+
+def _snapshot_path(skill_dir: Path, case_id: str) -> Path:
+    return skill_dir / "tests" / "golden" / f"{case_id}.json"
+
+
+def _hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _case_result(skill_dir: Path, case: Dict[str, Any], update_snapshots: bool) -> Dict[str, Any]:
+    case_id = str(case.get("id", "")).strip()
+    cmd = case.get("command", [])
+    if not case_id:
+        return {"id": "", "passed": False, "reason": "missing id"}
+    if not isinstance(cmd, list) or not cmd or not all(isinstance(x, str) for x in cmd):
+        return {"id": case_id, "passed": False, "reason": "invalid command"}
+
+    expected_exit = int(case.get("expect_exit", 0))
+    expect_stdout_contains = case.get("expect_stdout_contains", [])
+    if not isinstance(expect_stdout_contains, list):
+        expect_stdout_contains = []
+
+    rc, stdout, stderr = _run(cmd, cwd=skill_dir)
+    passed = rc == expected_exit
+    reasons: List[str] = []
+    if rc != expected_exit:
+        reasons.append(f"exit mismatch expected={expected_exit} got={rc}")
+    for needle in expect_stdout_contains:
+        if isinstance(needle, str) and needle not in stdout:
+            passed = False
+            reasons.append(f"stdout missing token: {needle}")
+
+    snapshot_payload = {
+        "rc": rc,
+        "stdout_sha256": _hash_text(stdout),
+        "stderr_sha256": _hash_text(stderr),
+        "stdout_head": "\n".join(stdout.splitlines()[:30]),
+        "stderr_head": "\n".join(stderr.splitlines()[:30]),
+    }
+
+    snap_path = _snapshot_path(skill_dir, case_id)
+    drift = False
+    if update_snapshots:
+        snap_path.parent.mkdir(parents=True, exist_ok=True)
+        snap_path.write_text(json.dumps(snapshot_payload, indent=2) + "\n", encoding="utf-8")
+    else:
+        if snap_path.exists():
+            baseline = json.loads(snap_path.read_text(encoding="utf-8"))
+            if baseline != snapshot_payload:
+                drift = True
+                passed = False
+                reasons.append("snapshot drift")
+        else:
+            drift = True
+            passed = False
+            reasons.append("missing snapshot")
+
+    return {
+        "id": case_id,
+        "command": cmd,
+        "passed": passed,
+        "drift": drift,
+        "reasons": reasons,
+        "snapshot_path": str(snap_path),
+    }
+
+
+def run_regressions(source_root: Path, update_snapshots: bool) -> Dict[str, Any]:
+    if not source_root.exists() or not source_root.is_dir():
+        raise RegressionError(f"source root does not exist: {source_root}")
+
+    skills = _discover_skill_dirs(source_root)
+    report_skills: List[Dict[str, Any]] = []
+
+    for skill_dir in skills:
+        cases = _load_suite(skill_dir)
+        case_results = [_case_result(skill_dir, case, update_snapshots) for case in cases]
+        passed = all(c["passed"] for c in case_results)
+        report_skills.append(
+            {
+                "skill": skill_dir.name,
+                "suite_cases": len(cases),
+                "passed": passed,
+                "cases": case_results,
+            }
+        )
+
+    overall_passed = all(s["passed"] for s in report_skills)
+    return {
+        "schema_version": 1,
+        "source_root": str(source_root),
+        "update_snapshots": update_snapshots,
+        "overall_passed": overall_passed,
+        "skills": report_skills,
+    }
+
+
+def parse_args(argv: List[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run skill regression suites")
+    parser.add_argument("--source-root", required=True, help="Path containing skill folders")
+    parser.add_argument("--update-snapshots", action="store_true", help="Write/refresh golden snapshots")
+    parser.add_argument("--strict", action="store_true", help="Exit with code 2 on failures")
+    parser.add_argument("--json", action="store_true", help="Print JSON output")
+    return parser.parse_args(argv)
+
+
+def main(argv: List[str]) -> int:
+    args = parse_args(argv)
+    source_root = Path(args.source_root).expanduser().resolve()
+    try:
+        report = run_regressions(source_root, bool(args.update_snapshots))
+    except RegressionError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(f"source_root: {report['source_root']}")
+        print(f"overall_passed: {report['overall_passed']}")
+        for skill in report["skills"]:
+            state = "PASS" if skill["passed"] else "FAIL"
+            print(f"- {state} {skill['skill']} cases={skill['suite_cases']}")
+
+    if args.strict and not report["overall_passed"]:
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
