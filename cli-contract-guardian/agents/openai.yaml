@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: CLI Contract Guardian
+  short_description: Validate app.main command, schema, and strict payload contracts with snapshot drift checks.
+  default_prompt: Validate this repository's CLI contract for app.main report/strict commands and fail on regressions.
