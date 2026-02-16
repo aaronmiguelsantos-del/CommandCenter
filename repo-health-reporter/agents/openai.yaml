@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Repo Health Reporter
+  short_description: Report deterministic repo health in human and JSON forms, with optional app.main install.
+  default_prompt: Report this repository's health, output JSON when requested, and install app.main health entrypoint if missing.

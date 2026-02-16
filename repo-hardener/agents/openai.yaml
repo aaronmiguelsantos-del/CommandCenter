@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Repo Hardener
+  short_description: Harden existing Python or Node repos into deterministic, one-command projects with scorecards.
+  default_prompt: Harden this repository to low entropy with safe refactor wrappers, policy checks, and a measurable hardening score.
