@@ -5,6 +5,10 @@ on:
     - cron: '17 9 * * *'
   workflow_dispatch:
 
+concurrency:
+  group: nightly-roadmap
+  cancel-in-progress: false
+
 jobs:
   nightly-roadmap:
     runs-on: ubuntu-latest
@@ -33,6 +37,23 @@ jobs:
             --repo-root . \
             --output-dir /tmp/nightly/roadmap \
             --json > /tmp/nightly/roadmap_pr_report.json
+
+      - name: Write nightly manifest
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root = Path("/tmp/nightly")
+          files = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+          manifest = {
+              "schema_version": 1,
+              "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+              "files": files,
+          }
+          (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+          PY
 
       - name: Upload nightly artifacts
         if: always()

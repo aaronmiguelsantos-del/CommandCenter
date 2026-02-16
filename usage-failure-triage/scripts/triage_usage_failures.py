@@ -60,7 +60,27 @@ def _parse_timestamp(ts: str) -> datetime | None:
     return parsed
 
 
-def _load_jsonl(path: Path, schema: Dict[str, Any], since_days: int) -> List[Dict[str, Any]]:
+def _parse_csv(raw: str) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for part in raw.split(","):
+        item = part.strip()
+        if not item:
+            continue
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def _load_jsonl(
+    path: Path,
+    schema: Dict[str, Any],
+    since_days: int,
+    sources: List[str],
+    reason_codes: List[str],
+) -> List[Dict[str, Any]]:
     if not path.exists():
         raise TriageError(f"events file not found: {path}")
     cutoff: datetime | None = None
@@ -85,6 +105,10 @@ def _load_jsonl(path: Path, schema: Dict[str, Any], since_days: int) -> List[Dic
             ts = _parse_timestamp(str(obj.get("timestamp_utc", "")))
             if ts is None or ts < cutoff:
                 continue
+        if sources and str(obj.get("source", "")) not in sources:
+            continue
+        if reason_codes and str(obj.get("reason_code", "")) not in reason_codes:
+            continue
         rows.append(obj)
     return rows
 
@@ -146,6 +170,8 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     p.add_argument("--markdown-output", default="", help="Optional markdown summary path")
     p.add_argument("--since-days", type=int, default=0, help="Include only events from last N days (0=all)")
     p.add_argument("--top", type=int, default=20, help="Max top failed skills rows")
+    p.add_argument("--sources", default="", help="Optional CSV list to filter source values")
+    p.add_argument("--reason-codes", default="", help="Optional CSV list to filter reason_code values")
     p.add_argument(
         "--schema",
         default="",
@@ -165,7 +191,13 @@ def main(argv: List[str]) -> int:
 
     try:
         schema = _load_schema(schema_path)
-        rows = _load_jsonl(events_path, schema=schema, since_days=max(0, int(args.since_days)))
+        rows = _load_jsonl(
+            events_path,
+            schema=schema,
+            since_days=max(0, int(args.since_days)),
+            sources=_parse_csv(args.sources),
+            reason_codes=_parse_csv(args.reason_codes),
+        )
         report = _build_report(rows, top=max(1, int(args.top)))
     except TriageError as err:
         print(f"error: {err}", file=sys.stderr)

@@ -22,6 +22,10 @@ python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_u
 ```bash
 python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_usage_events.jsonl --since-days 7 --top 10 --markdown-output /absolute/path/to/data/usage_failure_triage.md --json
 ```
+4. Scoped triage by source and reason code:
+```bash
+python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_usage_events.jsonl --sources skill-publisher --reason-codes regression_failed,git_push_failed --json
+```
 
 Schema enforcement:
 - defaults to `../skill-adoption-analytics/references/skill_usage_events.schema.json`

@@ -26,3 +26,7 @@ python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --open-
 ```bash
 python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --open-pr --dry-run --json
 ```
+5. Skip PR updates when artifacts have no staged diff:
+```bash
+python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --open-pr --skip-pr-if-no-change --json
+```

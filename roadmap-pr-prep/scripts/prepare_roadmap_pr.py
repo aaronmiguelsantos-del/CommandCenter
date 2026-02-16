@@ -57,8 +57,14 @@ def _pr_body(report: Dict[str, Any], rollup_path: Path, summary_path: Path, repo
     top = report.get("top_priority", [])
     if not isinstance(top, list):
         top = []
-    rel_rollup = rollup_path.relative_to(repo_root)
-    rel_summary = summary_path.relative_to(repo_root)
+    try:
+        rel_rollup = rollup_path.relative_to(repo_root)
+    except ValueError:
+        rel_rollup = rollup_path
+    try:
+        rel_summary = summary_path.relative_to(repo_root)
+    except ValueError:
+        rel_summary = summary_path
 
     lines = []
     lines.append("<!-- roadmap-pr-prep:daily-roadmap -->")
@@ -86,11 +92,8 @@ def _open_or_update_pr(
     commit_message: str,
     paths: List[Path],
     dry_run: bool,
+    skip_pr_if_no_change: bool,
 ) -> Dict[str, Any]:
-    rc, out, err = _run(["gh", "--version"], cwd=repo_root)
-    if rc != 0:
-        raise RoadmapPrepError(f"gh CLI unavailable: {err or out}")
-
     rc, out, err = _run(["git", "rev-parse", "--is-inside-work-tree"], cwd=repo_root)
     if rc != 0 or out.strip() != "true":
         raise RoadmapPrepError("repo_root is not a git repository")
@@ -108,6 +111,18 @@ def _open_or_update_pr(
     if rc != 0:
         raise RoadmapPrepError(f"git diff --cached failed: {err or staged}")
     has_changes = bool(staged.strip())
+    if not has_changes and skip_pr_if_no_change:
+        return {
+            "mode": "skipped_no_changes",
+            "number": 0,
+            "url": "",
+            "has_changes": False,
+            "dry_run": dry_run,
+        }
+
+    rc, out, err = _run(["gh", "--version"], cwd=repo_root)
+    if rc != 0:
+        raise RoadmapPrepError(f"gh CLI unavailable: {err or out}")
 
     if has_changes and not dry_run:
         rc, out, err = _run(["git", "commit", "-m", commit_message], cwd=repo_root)
@@ -184,6 +199,7 @@ def run(
     base_branch: str,
     branch_prefix: str,
     dry_run: bool,
+    skip_pr_if_no_change: bool,
 ) -> Dict[str, Any]:
     releases = repo_root / "data" / "skill_releases.jsonl"
     events = repo_root / "data" / "skill_usage_events.jsonl"
@@ -241,6 +257,11 @@ def run(
     if open_pr:
         if not branch_prefix.startswith("codex/"):
             raise RoadmapPrepError("branch-prefix must start with codex/")
+        try:
+            rollup_out.relative_to(repo_root)
+            md_out.relative_to(repo_root)
+        except ValueError as err:
+            raise RoadmapPrepError("--open-pr requires output-dir within repo-root") from err
         branch = f"{branch_prefix}-{stamp}"
         title = f"roadmap: daily update {stamp}"
         body = _pr_body(report, rollup_path=rollup_out, summary_path=md_out, repo_root=repo_root)
@@ -253,6 +274,7 @@ def run(
             commit_message=f"roadmap: daily update {stamp}",
             paths=[rollup_out, md_out],
             dry_run=dry_run,
+            skip_pr_if_no_change=skip_pr_if_no_change,
         )
         report["open_pr"] = {
             "requested": True,
@@ -274,6 +296,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     p.add_argument("--open-pr", action="store_true", help="Create or update deterministic daily roadmap PR with gh")
     p.add_argument("--base-branch", default="main", help="Base branch for PR")
     p.add_argument("--branch-prefix", default="codex/roadmap-daily", help="Deterministic branch prefix")
+    p.add_argument("--skip-pr-if-no-change", action="store_true", help="Skip PR create/update when roadmap artifacts have no staged changes")
     p.add_argument("--dry-run", action="store_true", help="Do not commit/push/create PR; only report planned PR actions")
     p.add_argument("--json", action="store_true", help="Emit JSON")
     return p.parse_args(argv)
@@ -292,6 +315,7 @@ def main(argv: List[str]) -> int:
             base_branch=str(args.base_branch),
             branch_prefix=str(args.branch_prefix),
             dry_run=bool(args.dry_run),
+            skip_pr_if_no_change=bool(args.skip_pr_if_no_change),
         )
     except RoadmapPrepError as err:
         print(f"error: {err}", file=sys.stderr)
