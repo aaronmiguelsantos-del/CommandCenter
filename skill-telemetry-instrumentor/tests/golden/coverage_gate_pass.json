@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "55b3e002329a58101e28cfa7a6fbc6a578940a1f0e52d9bc02e3b9f1b0f25743",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"coverage\": [\n    {\n      \"count\": 2,\n      \"covered\": true,\n      \"min_required\": 1,\n      \"skill\": \"usage-failure-triage\"\n    },\n    {\n      \"count\": 2,\n      \"covered\": true,\n      \"min_required\": 1,\n      \"skill\": \"roadmap-pr-prep\"\n    }\n  ],\n  \"covered\": true,\n  \"events_path\": \"/Users/aaronsantos/Skill Builder/repo-bootstrapper-repo/skill-telemetry-instrumentor/tests/fixtures/events_coverage.jsonl\",\n  \"events_total\": 4,\n  \"events_window\": 4,\n  \"last_n\": 4,\n  \"min_events_per_skill\": 1,\n  \"missing_skills\": [],\n  \"required_skills\": [\n    \"usage-failure-triage\",\n    \"roadmap-pr-prep\"\n  ],\n  \"schema_version\": 1\n}",
+  "stderr_head": ""
+}

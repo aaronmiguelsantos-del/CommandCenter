@@ -48,3 +48,7 @@ jobs:
       - name: Nightly local check schema gate (must be stable)
         run: |
           make nightly-local-check
+
+      - name: Telemetry coverage gate
+        run: |
+          make telemetry-coverage EVENTS=/tmp/nightly-telemetry/skill_usage_events.jsonl

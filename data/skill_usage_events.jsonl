@@ -2,3 +2,6 @@
 {"context": "publish", "duration_ms": 7, "skill": "skill-adoption-analytics", "source": "skill-publisher", "status": "success", "timestamp_utc": "2026-02-16T02:52:07.214231+00:00"}
 {"context": "publish", "duration_ms": 1, "reason_code": "unknown_skill", "skill": "no-such-skill", "source": "skill-publisher", "status": "failure", "timestamp_utc": "2026-02-16T03:00:39.065488+00:00"}
 {"context": "publish", "duration_ms": 0, "error_class": "input", "reason_code": "unknown_skill", "reason_detail": "--only contains unknown skills: no-such-skill", "skill": "no-such-skill", "source": "skill-publisher", "status": "failure", "timestamp_utc": "2026-02-16T03:14:24.493769+00:00"}
+{"context": "regression-strict", "duration_ms": 1155, "skill": "skill-regression-runner", "source": "make-publish-skills", "status": "success", "timestamp_utc": "2026-02-16T13:37:26.095470+00:00"}
+{"context": "publish", "duration_ms": 6, "skill": "skill-telemetry-instrumentor", "source": "skill-publisher", "status": "success", "timestamp_utc": "2026-02-16T13:37:26.200628+00:00"}
+{"context": "publish", "duration_ms": 61, "skill": "skill-publisher", "source": "make-publish-skills", "status": "success", "timestamp_utc": "2026-02-16T13:37:26.209725+00:00"}

@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "reason_codes": [
+    {
+      "code": "command_failed",
+      "error_class": "runtime",
+      "description": "Generic wrapped command failure."
+    },
+    {
+      "code": "git_add_failed",
+      "error_class": "git",
+      "description": "git add failed during publish."
+    },
+    {
+      "code": "git_commit_failed",
+      "error_class": "git",
+      "description": "git commit failed during publish."
+    },
+    {
+      "code": "git_push_failed",
+      "error_class": "git",
+      "description": "git push failed during publish."
+    },
+    {
+      "code": "publish_failed",
+      "error_class": "runtime",
+      "description": "Publish command failed for an uncategorized reason."
+    },
+    {
+      "code": "push_requires_commit",
+      "error_class": "input",
+      "description": "Push requested without commit flag."
+    },
+    {
+      "code": "regression_failed",
+      "error_class": "regression",
+      "description": "Regression suite failed."
+    },
+    {
+      "code": "regression_runner_missing",
+      "error_class": "regression",
+      "description": "Regression runner script was not found."
+    },
+    {
+      "code": "repo_not_git",
+      "error_class": "input",
+      "description": "Target repo root is not a git repository."
+    },
+    {
+      "code": "repo_root_missing",
+      "error_class": "input",
+      "description": "Repo root path is missing."
+    },
+    {
+      "code": "roadmap_prep_failed",
+      "error_class": "runtime",
+      "description": "Roadmap preparation step failed."
+    },
+    {
+      "code": "rollup_contract_failed",
+      "error_class": "contract",
+      "description": "Rollup contract validation failed."
+    },
+    {
+      "code": "snapshot_bootstrap_failed",
+      "error_class": "regression",
+      "description": "Regression snapshot bootstrap failed."
+    },
+    {
+      "code": "source_root_missing",
+      "error_class": "input",
+      "description": "Source root path is missing."
+    },
+    {
+      "code": "triage_failed",
+      "error_class": "runtime",
+      "description": "Usage failure triage step failed."
+    },
+    {
+      "code": "unknown_skill",
+      "error_class": "input",
+      "description": "Requested skill was not found in source root."
+    },
+    {
+      "code": "validation_failed",
+      "error_class": "validation",
+      "description": "Schema or structural validation failed."
+    }
+  ]
+}

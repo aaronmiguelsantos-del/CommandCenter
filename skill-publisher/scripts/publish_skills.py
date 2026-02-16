@@ -24,6 +24,23 @@ BLOCKED_SUFFIXES = {".pyc"}
 BLOCKED_DIRS = {"__pycache__"}
 ERROR_CLASSES = {"input", "validation", "regression", "contract", "git", "runtime"}
 DEFAULT_USAGE_SCHEMA_REL = Path("skill-adoption-analytics") / "references" / "skill_usage_events.schema.json"
+DEFAULT_REASON_CODES_REL = Path("skill-adoption-analytics") / "references" / "reason_codes.json"
+REQUIRED_PUBLISH_REASON_CODES = {
+    "unknown_skill",
+    "source_root_missing",
+    "repo_root_missing",
+    "repo_not_git",
+    "validation_failed",
+    "regression_runner_missing",
+    "regression_failed",
+    "snapshot_bootstrap_failed",
+    "git_add_failed",
+    "git_commit_failed",
+    "git_push_failed",
+    "push_requires_commit",
+    "rollup_contract_failed",
+    "publish_failed",
+}
 
 
 def _run(cmd: List[str], cwd: Path) -> Tuple[int, str, str]:
@@ -144,7 +161,40 @@ def _load_json_schema(path: Path) -> Dict[str, Any]:
     return obj
 
 
-def _validate_usage_event_row(schema: Dict[str, Any], row: Dict[str, Any]) -> List[str]:
+def _load_reason_code_map(path: Path) -> Dict[str, str]:
+    try:
+        obj = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as err:
+        raise PublishError(f"invalid reason-code file {path}: {err}") from err
+    if not isinstance(obj, dict):
+        raise PublishError(f"reason-code file must be object: {path}")
+    reason_rows = obj.get("reason_codes")
+    if not isinstance(reason_rows, list):
+        raise PublishError(f"reason-code file missing reason_codes[]: {path}")
+
+    result: Dict[str, str] = {}
+    for row in reason_rows:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("code", "")).strip()
+        if not code:
+            continue
+        error_class = str(row.get("error_class", "")).strip()
+        if error_class and error_class not in ERROR_CLASSES:
+            raise PublishError(f"invalid error_class '{error_class}' in reason-code file for code {code}")
+        result[code] = error_class
+    if not result:
+        raise PublishError(f"reason-code file contains no valid reason codes: {path}")
+    return result
+
+
+def _ensure_required_reason_codes(reason_code_map: Dict[str, str]) -> None:
+    missing = sorted(code for code in REQUIRED_PUBLISH_REASON_CODES if code not in reason_code_map)
+    if missing:
+        raise PublishError(f"reason-code dictionary missing required codes: {', '.join(missing)}")
+
+
+def _validate_usage_event_row(schema: Dict[str, Any], row: Dict[str, Any], reason_code_map: Dict[str, str]) -> List[str]:
     errors: List[str] = []
     required = schema.get("required", [])
     props = schema.get("properties", {})
@@ -166,10 +216,21 @@ def _validate_usage_event_row(schema: Dict[str, Any], row: Dict[str, Any]) -> Li
         enum = rule.get("enum")
         if isinstance(enum, list) and row[key] not in enum:
             errors.append(f"invalid value for {key}: {row[key]}")
+    reason = row.get("reason_code")
+    if isinstance(reason, str) and reason:
+        if reason not in reason_code_map:
+            errors.append(f"unknown reason_code: {reason}")
+        expected_error_class = reason_code_map.get(reason, "")
+        actual_error_class = row.get("error_class")
+        if expected_error_class and isinstance(actual_error_class, str) and actual_error_class:
+            if actual_error_class != expected_error_class:
+                errors.append(
+                    f"error_class mismatch for reason_code {reason}: expected {expected_error_class}, got {actual_error_class}"
+                )
     return errors
 
 
-def _validate_usage_events_file(path: Path, schema: Dict[str, Any]) -> None:
+def _validate_usage_events_file(path: Path, schema: Dict[str, Any], reason_code_map: Dict[str, str]) -> None:
     if not path.exists():
         return
     for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -182,7 +243,7 @@ def _validate_usage_events_file(path: Path, schema: Dict[str, Any]) -> None:
             raise PublishError(f"invalid usage events json line {i}: {err}") from err
         if not isinstance(obj, dict):
             raise PublishError(f"invalid usage event row at line {i}: expected object")
-        row_errors = _validate_usage_event_row(schema, obj)
+        row_errors = _validate_usage_event_row(schema, obj, reason_code_map)
         if row_errors:
             raise PublishError(f"usage event schema validation failed at line {i}: {'; '.join(row_errors)}")
 
@@ -190,6 +251,7 @@ def _validate_usage_events_file(path: Path, schema: Dict[str, Any]) -> None:
 def _append_usage_events(
     source_root: Path,
     schema: Dict[str, Any],
+    reason_code_map: Dict[str, str],
     skill_names: List[str],
     status: str,
     duration_ms: int,
@@ -224,7 +286,7 @@ def _append_usage_events(
                 row["reason_detail"] = reason_detail
             if error_class:
                 row["error_class"] = error_class
-            row_errors = _validate_usage_event_row(schema, row)
+            row_errors = _validate_usage_event_row(schema, row, reason_code_map)
             if row_errors:
                 raise PublishError("usage event schema validation failed: " + "; ".join(row_errors))
             f.write(
@@ -238,6 +300,7 @@ def _append_usage_events(
 def _append_failure_usage_events_best_effort(
     source_root: Path,
     schema: Dict[str, Any],
+    reason_code_map: Dict[str, str],
     skill_names: List[str],
     duration_ms: int,
     reason_code: str,
@@ -250,6 +313,7 @@ def _append_failure_usage_events_best_effort(
         _append_usage_events(
             source_root=source_root,
             schema=schema,
+            reason_code_map=reason_code_map,
             skill_names=skill_names,
             status="failure",
             duration_ms=duration_ms,
@@ -293,17 +357,11 @@ def _reason_code_from_error(err: PublishError) -> str:
     return "publish_failed"
 
 
-def _error_class_from_reason_code(reason_code: str) -> str:
-    if reason_code in {"unknown_skill", "source_root_missing", "repo_root_missing", "repo_not_git", "push_requires_commit"}:
-        return "input"
-    if reason_code in {"validation_failed"}:
-        return "validation"
-    if reason_code in {"regression_runner_missing", "regression_failed", "snapshot_bootstrap_failed"}:
-        return "regression"
-    if reason_code in {"rollup_contract_failed"}:
-        return "contract"
-    if reason_code in {"git_add_failed", "git_commit_failed", "git_push_failed"}:
-        return "git"
+def _error_class_from_reason_code(reason_code: str, reason_code_map: Dict[str, str]) -> str:
+    if reason_code in reason_code_map:
+        mapped = reason_code_map[reason_code]
+        if mapped:
+            return mapped
     return "runtime"
 
 
@@ -533,6 +591,7 @@ def publish(
     source_root: Path,
     repo_root: Path,
     usage_schema_path: Path,
+    reason_codes_path: Path,
     only_skills: List[str],
     commit: bool,
     push: bool,
@@ -554,6 +613,8 @@ def publish(
         raise PublishError(f"repo root is not a git repo: {repo_root}")
 
     usage_schema = _load_json_schema(usage_schema_path)
+    reason_code_map = _load_reason_code_map(reason_codes_path)
+    _ensure_required_reason_codes(reason_code_map)
 
     all_skill_dirs = _discover_skills(source_root)
     if not all_skill_dirs:
@@ -615,16 +676,17 @@ def publish(
         releases_dst.write_text(releases_src.read_text(encoding="utf-8"), encoding="utf-8")
 
     existing_usage_events = source_root / "data" / "skill_usage_events.jsonl"
-    _validate_usage_events_file(existing_usage_events, usage_schema)
+    _validate_usage_events_file(existing_usage_events, usage_schema, reason_code_map)
     usage_events_path, usage_events_count = _append_usage_events(
         source_root=source_root,
         schema=usage_schema,
+        reason_code_map=reason_code_map,
         skill_names=[s.name for s in skill_dirs],
         status="success",
         duration_ms=round((time.monotonic() - started) * 1000),
         context="publish",
     )
-    _validate_usage_events_file(Path(usage_events_path), usage_schema)
+    _validate_usage_events_file(Path(usage_events_path), usage_schema, reason_code_map)
     usage_src = Path(usage_events_path)
     usage_dst = repo_root / "data" / "skill_usage_events.jsonl"
     usage_dst.parent.mkdir(parents=True, exist_ok=True)
@@ -680,6 +742,11 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         default="",
         help="Optional usage events schema path (defaults to skill-adoption-analytics/references/skill_usage_events.schema.json)",
     )
+    parser.add_argument(
+        "--reason-codes",
+        default="",
+        help="Optional reason-code dictionary path (defaults to skill-adoption-analytics/references/reason_codes.json)",
+    )
     parser.add_argument("--only", default="", help="Optional comma-separated skill names to publish")
     parser.add_argument("--commit", action="store_true", help="Commit changes")
     parser.add_argument("--push", action="store_true", help="Push changes (requires --commit)")
@@ -707,14 +774,26 @@ def main(argv: List[str]) -> int:
         usage_schema_path = Path(args.usage_schema).expanduser().resolve()
     else:
         usage_schema_path = (source_root / DEFAULT_USAGE_SCHEMA_REL).resolve()
+    if args.reason_codes:
+        reason_codes_path = Path(args.reason_codes).expanduser().resolve()
+    else:
+        reason_codes_path = (source_root / DEFAULT_REASON_CODES_REL).resolve()
     only = _parse_only_csv(str(args.only))
     started = time.monotonic()
+    reason_code_map: Dict[str, str] | None = None
+    try:
+        reason_code_map = _load_reason_code_map(reason_codes_path)
+        _ensure_required_reason_codes(reason_code_map)
+    except PublishError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 1
 
     try:
         report = publish(
             source_root=source_root,
             repo_root=repo_root,
             usage_schema_path=usage_schema_path,
+            reason_codes_path=reason_codes_path,
             only_skills=only,
             commit=bool(args.commit),
             push=bool(args.push),
@@ -738,11 +817,12 @@ def main(argv: List[str]) -> int:
             _append_failure_usage_events_best_effort(
                 source_root=source_root,
                 schema=usage_schema,
+                reason_code_map=reason_code_map or {},
                 skill_names=only,
                 duration_ms=round((time.monotonic() - started) * 1000),
                 reason_code=reason_code,
                 reason_detail=_reason_detail_from_error(err),
-                error_class=_error_class_from_reason_code(reason_code),
+                error_class=_error_class_from_reason_code(reason_code, reason_code_map or {}),
             )
         print(f"error: {err}", file=sys.stderr)
         return 1

@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "a9bc58ef5ef18325466c492474f55edc63fe0bbcf9c2200b790ad78e89be3d7d",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"event_error_class\": \"regression\",\n  \"event_reason_code\": \"regression_failed\",\n  \"event_status\": \"failure\",\n  \"events_count\": 1,\n  \"scenario\": \"failure_append_reason\",\n  \"summary_reason_code\": \"regression_failed\",\n  \"summary_status\": \"failure\",\n  \"wrapper_rc\": 7\n}",
+  "stderr_head": ""
+}

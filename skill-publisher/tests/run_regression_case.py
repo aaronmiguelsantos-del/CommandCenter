@@ -73,6 +73,7 @@ def _load_last_usage_event(path: Path) -> Dict[str, Any]:
 def _publish_cmd(
     script_path: Path,
     usage_schema: Path,
+    reason_codes: Path,
     source_root: Path,
     repo_root: Path,
     only: str,
@@ -86,6 +87,8 @@ def _publish_cmd(
         str(repo_root),
         "--usage-schema",
         str(usage_schema),
+        "--reason-codes",
+        str(reason_codes),
         "--skip-version-bump",
         "--skip-regressions",
         "--skip-rollup-contract",
@@ -95,7 +98,7 @@ def _publish_cmd(
     ]
 
 
-def _scenario_scoped_only_publish(repo_root: Path, usage_schema: Path) -> Dict[str, Any]:
+def _scenario_scoped_only_publish(repo_root: Path, usage_schema: Path, reason_codes: Path) -> Dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="skill-publisher-reg-") as td:
         temp = Path(td)
         source_root = _setup_source_root(temp)
@@ -103,6 +106,7 @@ def _scenario_scoped_only_publish(repo_root: Path, usage_schema: Path) -> Dict[s
         cmd = _publish_cmd(
             script_path=repo_root / "skill-publisher" / "scripts" / "publish_skills.py",
             usage_schema=usage_schema,
+            reason_codes=reason_codes,
             source_root=source_root,
             repo_root=repo_clone,
             only="skill-a",
@@ -127,7 +131,7 @@ def _scenario_scoped_only_publish(repo_root: Path, usage_schema: Path) -> Dict[s
         }
 
 
-def _scenario_usage_event_append(repo_root: Path, usage_schema: Path) -> Dict[str, Any]:
+def _scenario_usage_event_append(repo_root: Path, usage_schema: Path, reason_codes: Path) -> Dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="skill-publisher-reg-") as td:
         temp = Path(td)
         source_root = _setup_source_root(temp)
@@ -137,6 +141,7 @@ def _scenario_usage_event_append(repo_root: Path, usage_schema: Path) -> Dict[st
         cmd = _publish_cmd(
             script_path=repo_root / "skill-publisher" / "scripts" / "publish_skills.py",
             usage_schema=usage_schema,
+            reason_codes=reason_codes,
             source_root=source_root,
             repo_root=repo_clone,
             only="skill-a",
@@ -168,7 +173,7 @@ def _scenario_usage_event_append(repo_root: Path, usage_schema: Path) -> Dict[st
         }
 
 
-def _scenario_failure_reason_code(repo_root: Path, usage_schema: Path) -> Dict[str, Any]:
+def _scenario_failure_reason_code(repo_root: Path, usage_schema: Path, reason_codes: Path) -> Dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="skill-publisher-reg-") as td:
         temp = Path(td)
         source_root = _setup_source_root(temp)
@@ -177,6 +182,7 @@ def _scenario_failure_reason_code(repo_root: Path, usage_schema: Path) -> Dict[s
         cmd = _publish_cmd(
             script_path=repo_root / "skill-publisher" / "scripts" / "publish_skills.py",
             usage_schema=usage_schema,
+            reason_codes=reason_codes,
             source_root=source_root,
             repo_root=repo_clone,
             only="no-such-skill",
@@ -219,15 +225,18 @@ def main(argv: List[str]) -> int:
     args = parse_args(argv)
     repo_root = Path(__file__).resolve().parents[2]
     usage_schema = repo_root / "skill-adoption-analytics" / "references" / "skill_usage_events.schema.json"
+    reason_codes = repo_root / "skill-adoption-analytics" / "references" / "reason_codes.json"
     if not usage_schema.exists():
         raise CaseError(f"usage schema not found: {usage_schema}")
+    if not reason_codes.exists():
+        raise CaseError(f"reason-code dictionary not found: {reason_codes}")
 
     if args.scenario == "scoped_only_publish":
-        result = _scenario_scoped_only_publish(repo_root, usage_schema)
+        result = _scenario_scoped_only_publish(repo_root, usage_schema, reason_codes)
     elif args.scenario == "usage_event_append":
-        result = _scenario_usage_event_append(repo_root, usage_schema)
+        result = _scenario_usage_event_append(repo_root, usage_schema, reason_codes)
     else:
-        result = _scenario_failure_reason_code(repo_root, usage_schema)
+        result = _scenario_failure_reason_code(repo_root, usage_schema, reason_codes)
 
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

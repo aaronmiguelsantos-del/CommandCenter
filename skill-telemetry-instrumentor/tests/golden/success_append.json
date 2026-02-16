@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "81dbfd2a4781cb504c1dd88c8e47898be81d223a2477865e02da7521a2ed694a",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"event_source\": \"regression-suite\",\n  \"event_status\": \"success\",\n  \"events_count\": 1,\n  \"scenario\": \"success_append\",\n  \"summary_event_appended\": 1,\n  \"summary_status\": \"success\",\n  \"wrapper_rc\": 0\n}",
+  "stderr_head": ""
+}

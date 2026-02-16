@@ -38,3 +38,5 @@ python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_u
 Schema enforcement:
 - defaults to `../skill-adoption-analytics/references/skill_usage_events.schema.json`
 - override with `--schema /absolute/path/to/skill_usage_events.schema.json`
+- reason-code dictionary defaults to `../skill-adoption-analytics/references/reason_codes.json`
+- override with `--reason-codes-dict /absolute/path/to/reason_codes.json`

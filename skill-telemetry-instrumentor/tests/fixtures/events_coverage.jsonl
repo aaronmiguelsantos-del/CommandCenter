@@ -1,0 +1,4 @@
+{"timestamp_utc":"2026-02-16T09:00:00+00:00","skill":"usage-failure-triage","status":"success","duration_ms":120,"source":"nightly-local","context":"triage"}
+{"timestamp_utc":"2026-02-16T09:01:00+00:00","skill":"roadmap-pr-prep","status":"success","duration_ms":220,"source":"nightly-local","context":"roadmap-pr-prep"}
+{"timestamp_utc":"2026-02-16T09:02:00+00:00","skill":"usage-failure-triage","status":"failure","duration_ms":180,"source":"nightly-local","context":"triage","reason_code":"triage_failed","error_class":"runtime"}
+{"timestamp_utc":"2026-02-16T09:03:00+00:00","skill":"roadmap-pr-prep","status":"failure","duration_ms":260,"source":"nightly-local","context":"roadmap-pr-prep","reason_code":"roadmap_prep_failed","error_class":"runtime"}

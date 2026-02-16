@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Skill Telemetry Instrumentor
+  short_description: Wrap skill commands and append schema-validated usage events with deterministic summaries.
+  default_prompt: Instrument this skill command with usage telemetry so success and failure events are emitted consistently.

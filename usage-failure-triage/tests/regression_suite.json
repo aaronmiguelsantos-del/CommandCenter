@@ -67,6 +67,20 @@
         "\"passed\": false",
         "\"type\": \"skill\""
       ]
+    },
+    {
+      "id": "invalid_reason_code_filter",
+      "command": [
+        "python3",
+        "scripts/triage_usage_failures.py",
+        "--events",
+        "tests/fixtures/usage_events_regression.jsonl",
+        "--reason-codes",
+        "no_such_reason",
+        "--json"
+      ],
+      "expect_exit": 1,
+      "expect_stdout_contains": []
     }
   ]
 }

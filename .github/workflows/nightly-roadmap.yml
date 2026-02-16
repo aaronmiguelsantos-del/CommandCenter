@@ -24,19 +24,13 @@ jobs:
       - name: Prepare output folder
         run: mkdir -p /tmp/nightly/roadmap
 
-      - name: Generate failure triage JSON
+      - name: Generate nightly artifacts with telemetry instrumentation
         run: |
-          python3 usage-failure-triage/scripts/triage_usage_failures.py \
-            --events data/skill_usage_events.jsonl \
-            --output /tmp/nightly/usage_failure_triage.json \
-            --markdown-output /tmp/nightly/usage_failure_triage.md
+          make nightly-local
 
-      - name: Generate roadmap artifacts (no PR)
+      - name: Telemetry coverage gate
         run: |
-          python3 roadmap-pr-prep/scripts/prepare_roadmap_pr.py \
-            --repo-root . \
-            --output-dir /tmp/nightly/roadmap \
-            --json > /tmp/nightly/roadmap_pr_report.json
+          make telemetry-coverage EVENTS=/tmp/nightly-telemetry/skill_usage_events.jsonl
 
       - name: Verify roadmap report has priorities
         run: |

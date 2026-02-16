@@ -52,6 +52,11 @@
       "description": "Run deterministic regression suites for skills, compare command outputs against golden snapshots, and fail fast on behavior drift. Use when Codex needs to prevent skill regressions before publish."
     },
     {
+      "name": "skill-telemetry-instrumentor",
+      "path": "skill-telemetry-instrumentor",
+      "description": "Wrap skill commands with schema-validated usage telemetry so success/failure events are appended consistently with reason codes and error classes. Use when Codex needs end-to-end skill instrumentation without rewriting each script."
+    },
+    {
       "name": "skill-version-manager",
       "path": "skill-version-manager",
       "description": "Manage deterministic semver for skills, append release records, and store migration notes in local-first JSON artifacts. Use when Codex needs structured version bumps and release bookkeeping for skills."

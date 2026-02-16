@@ -1,0 +1,74 @@
+{
+  "cases": [
+    {
+      "id": "success_append",
+      "command": [
+        "python3",
+        "tests/run_regression_case.py",
+        "--scenario",
+        "success_append"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"scenario\": \"success_append\"",
+        "\"wrapper_rc\": 0",
+        "\"event_status\": \"success\""
+      ]
+    },
+    {
+      "id": "failure_append_reason",
+      "command": [
+        "python3",
+        "tests/run_regression_case.py",
+        "--scenario",
+        "failure_append_reason"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"scenario\": \"failure_append_reason\"",
+        "\"wrapper_rc\": 7",
+        "\"event_reason_code\": \"regression_failed\""
+      ]
+    },
+    {
+      "id": "coverage_gate_pass",
+      "command": [
+        "python3",
+        "scripts/check_telemetry_coverage.py",
+        "--events",
+        "tests/fixtures/events_coverage.jsonl",
+        "--skills",
+        "usage-failure-triage,roadmap-pr-prep",
+        "--last-n",
+        "4",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"covered\": true",
+        "\"missing_skills\": []"
+      ]
+    },
+    {
+      "id": "coverage_gate_fail",
+      "command": [
+        "python3",
+        "scripts/check_telemetry_coverage.py",
+        "--events",
+        "tests/fixtures/events_coverage.jsonl",
+        "--skills",
+        "usage-failure-triage,roadmap-pr-prep,skill-publisher",
+        "--last-n",
+        "4",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 2,
+      "expect_stdout_contains": [
+        "\"covered\": false",
+        "\"skill-publisher\""
+      ]
+    }
+  ]
+}

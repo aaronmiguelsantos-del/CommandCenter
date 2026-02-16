@@ -15,6 +15,10 @@ class TriageError(Exception):
     pass
 
 
+ERROR_CLASSES = {"input", "validation", "regression", "contract", "git", "runtime"}
+DEFAULT_REASON_CODES_REL = Path("skill-adoption-analytics") / "references" / "reason_codes.json"
+
+
 def _load_schema(path: Path) -> Dict[str, Any]:
     try:
         obj = json.loads(path.read_text(encoding="utf-8"))
@@ -25,7 +29,33 @@ def _load_schema(path: Path) -> Dict[str, Any]:
     return obj
 
 
-def _validate_event(schema: Dict[str, Any], row: Dict[str, Any]) -> List[str]:
+def _load_reason_code_map(path: Path) -> Dict[str, str]:
+    try:
+        obj = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as err:
+        raise TriageError(f"invalid reason-code file {path}: {err}") from err
+    if not isinstance(obj, dict):
+        raise TriageError(f"reason-code file must be object: {path}")
+    reason_rows = obj.get("reason_codes")
+    if not isinstance(reason_rows, list):
+        raise TriageError(f"reason-code file missing reason_codes[]: {path}")
+    out: Dict[str, str] = {}
+    for row in reason_rows:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("code", "")).strip()
+        if not code:
+            continue
+        error_class = str(row.get("error_class", "")).strip()
+        if error_class and error_class not in ERROR_CLASSES:
+            raise TriageError(f"invalid error_class '{error_class}' in reason-code file for code {code}")
+        out[code] = error_class
+    if not out:
+        raise TriageError(f"reason-code file contains no valid reason codes: {path}")
+    return out
+
+
+def _validate_event(schema: Dict[str, Any], row: Dict[str, Any], reason_code_map: Dict[str, str]) -> List[str]:
     errors: List[str] = []
     required = schema.get("required", [])
     props = schema.get("properties", {})
@@ -47,6 +77,17 @@ def _validate_event(schema: Dict[str, Any], row: Dict[str, Any]) -> List[str]:
         enum = rule.get("enum")
         if isinstance(enum, list) and row[key] not in enum:
             errors.append(f"invalid value for {key}: {row[key]}")
+    reason = row.get("reason_code")
+    if isinstance(reason, str) and reason:
+        if reason not in reason_code_map:
+            errors.append(f"unknown reason_code: {reason}")
+        expected_error_class = reason_code_map.get(reason, "")
+        actual_error_class = row.get("error_class")
+        if expected_error_class and isinstance(actual_error_class, str) and actual_error_class:
+            if actual_error_class != expected_error_class:
+                errors.append(
+                    f"error_class mismatch for reason_code {reason}: expected {expected_error_class}, got {actual_error_class}"
+                )
     return errors
 
 
@@ -74,7 +115,7 @@ def _parse_csv(raw: str) -> List[str]:
     return out
 
 
-def _parse_fail_on(raw_values: List[str]) -> List[Tuple[str, int]]:
+def _parse_fail_on(raw_values: List[str], reason_code_map: Dict[str, str]) -> List[Tuple[str, int]]:
     parsed: List[Tuple[str, int]] = []
     seen = set()
     for raw in raw_values:
@@ -89,6 +130,8 @@ def _parse_fail_on(raw_values: List[str]) -> List[Tuple[str, int]]:
             max_raw = max_raw.strip()
             if not reason:
                 raise TriageError(f"invalid --fail-on reason: {item}")
+            if reason not in reason_code_map:
+                raise TriageError(f"invalid --fail-on reason_code (not in dictionary): {reason}")
             if reason in seen:
                 raise TriageError(f"duplicate --fail-on reason: {reason}")
             try:
@@ -133,6 +176,7 @@ def _parse_fail_on_skill(raw_values: List[str]) -> List[Tuple[str, int]]:
 def _load_jsonl(
     path: Path,
     schema: Dict[str, Any],
+    reason_code_map: Dict[str, str],
     since_days: int,
     sources: List[str],
     reason_codes: List[str],
@@ -154,7 +198,7 @@ def _load_jsonl(
             raise TriageError(f"invalid json line {i}: {err}") from err
         if not isinstance(obj, dict):
             raise TriageError(f"invalid event line {i}: expected object")
-        row_errors = _validate_event(schema, obj)
+        row_errors = _validate_event(schema, obj, reason_code_map)
         if row_errors:
             raise TriageError(f"event schema validation failed at line {i}: {'; '.join(row_errors)}")
         if cutoff is not None:
@@ -339,6 +383,11 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         default="",
         help="Optional usage schema path (defaults to ../skill-adoption-analytics/references/skill_usage_events.schema.json)",
     )
+    p.add_argument(
+        "--reason-codes-dict",
+        default="",
+        help="Optional reason-code dictionary path (defaults to ../skill-adoption-analytics/references/reason_codes.json)",
+    )
     p.add_argument("--json", action="store_true", help="Emit JSON")
     return p.parse_args(argv)
 
@@ -350,18 +399,28 @@ def main(argv: List[str]) -> int:
         schema_path = Path(args.schema).expanduser().resolve()
     else:
         schema_path = Path(__file__).resolve().parents[2] / "skill-adoption-analytics" / "references" / "skill_usage_events.schema.json"
+    if args.reason_codes_dict:
+        reason_codes_path = Path(args.reason_codes_dict).expanduser().resolve()
+    else:
+        reason_codes_path = Path(__file__).resolve().parents[2] / DEFAULT_REASON_CODES_REL
 
     try:
         schema = _load_schema(schema_path)
+        reason_code_map = _load_reason_code_map(reason_codes_path)
+        reason_codes_filter = _parse_csv(args.reason_codes)
+        for reason in reason_codes_filter:
+            if reason not in reason_code_map:
+                raise TriageError(f"--reason-codes contains unknown reason_code: {reason}")
         rows = _load_jsonl(
             events_path,
             schema=schema,
+            reason_code_map=reason_code_map,
             since_days=max(0, int(args.since_days)),
             sources=_parse_csv(args.sources),
-            reason_codes=_parse_csv(args.reason_codes),
+            reason_codes=reason_codes_filter,
         )
         report = _build_report(rows, top=max(1, int(args.top)))
-        fail_on = _parse_fail_on(args.fail_on)
+        fail_on = _parse_fail_on(args.fail_on, reason_code_map=reason_code_map)
         fail_on_total = int(args.fail_on_total)
         if fail_on_total < -1:
             raise TriageError("--fail-on-total must be -1 or >= 0")

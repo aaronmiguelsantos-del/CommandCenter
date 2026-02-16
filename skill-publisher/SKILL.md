@@ -36,6 +36,10 @@ Custom usage schema:
 ```bash
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --usage-schema /absolute/path/to/skill_usage_events.schema.json
 ```
+Custom reason-code dictionary:
+```bash
+python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --reason-codes /absolute/path/to/reason_codes.json
+```
 2. Commit and push:
 ```bash
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --commit --push
@@ -51,6 +55,7 @@ Default integrated pipeline on each run:
 - run rollup contract precheck (`skill-adoption-analytics/scripts/check_rollup_contract.py`)
 - publish sync + index generation
 - enforce `skill_usage_events.schema.json` and append valid usage events to `data/skill_usage_events.jsonl` for targeted skills
+- enforce shared reason-code dictionary (`reason_codes.json`) for all emitted `reason_code` values
 - append failure usage events with deterministic `reason_code` on publish errors
 
 ## What It Enforces
