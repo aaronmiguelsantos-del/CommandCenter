@@ -19,36 +19,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Generate rollup (schema-enforced)
+      - name: Check rollup contract
         run: |
-          python3 skill-adoption-analytics/scripts/generate_daily_rollup.py \
+          python3 skill-adoption-analytics/scripts/check_rollup_contract.py \
             --releases skill-adoption-analytics/tests/fixtures/rollup_releases.jsonl \
             --events skill-adoption-analytics/tests/fixtures/rollup_events.jsonl \
             --schema skill-adoption-analytics/references/roadmap_rollup.schema.json \
+            --expected skill-adoption-analytics/tests/golden/roadmap_rollup.expected.json \
             --output /tmp/roadmap_rollup.actual.json
-
-      - name: Check rollup drift
-        run: |
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          actual_path = Path('/tmp/roadmap_rollup.actual.json')
-          expected_path = Path('skill-adoption-analytics/tests/golden/roadmap_rollup.expected.json')
-
-          actual = json.loads(actual_path.read_text(encoding='utf-8'))
-          expected = json.loads(expected_path.read_text(encoding='utf-8'))
-
-          # generated_utc is expected to change each run.
-          actual['generated_utc'] = '__NORMALIZED__'
-
-          if actual != expected:
-              print('rollup drift detected')
-              print('expected:')
-              print(json.dumps(expected, indent=2, sort_keys=True))
-              print('actual:')
-              print(json.dumps(actual, indent=2, sort_keys=True))
-              raise SystemExit(1)
-
-          print('rollup contract OK')
-          PY

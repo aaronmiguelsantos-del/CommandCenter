@@ -1,0 +1,5 @@
+version: 1
+agent:
+  display_name: Roadmap PR Prep
+  short_description: Generate deterministic roadmap update artifacts ready for commit and PR.
+  default_prompt: Build roadmap rollup and markdown summary artifacts for a daily roadmap PR.

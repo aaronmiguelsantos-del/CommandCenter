@@ -22,6 +22,7 @@ class PublishError(Exception):
 BLOCKED_NAMES = {".DS_Store"}
 BLOCKED_SUFFIXES = {".pyc"}
 BLOCKED_DIRS = {"__pycache__"}
+ERROR_CLASSES = {"input", "validation", "regression", "contract", "git", "runtime"}
 
 
 def _run(cmd: List[str], cwd: Path) -> Tuple[int, str, str]:
@@ -139,9 +140,13 @@ def _append_usage_events(
     duration_ms: int,
     context: str,
     reason_code: str = "",
+    reason_detail: str = "",
+    error_class: str = "",
 ) -> Tuple[str, int]:
     if status not in {"success", "failure"}:
         raise PublishError(f"invalid usage status: {status}")
+    if error_class and error_class not in ERROR_CLASSES:
+        raise PublishError(f"invalid error_class: {error_class}")
     if duration_ms < 0:
         duration_ms = 0
     events_path = source_root / "data" / "skill_usage_events.jsonl"
@@ -160,6 +165,10 @@ def _append_usage_events(
             }
             if reason_code:
                 row["reason_code"] = reason_code
+            if reason_detail:
+                row["reason_detail"] = reason_detail
+            if error_class:
+                row["error_class"] = error_class
             f.write(
                 json.dumps(row, sort_keys=True)
                 + "\n"
@@ -173,6 +182,8 @@ def _append_failure_usage_events_best_effort(
     skill_names: List[str],
     duration_ms: int,
     reason_code: str,
+    reason_detail: str,
+    error_class: str,
 ) -> None:
     if not skill_names:
         return
@@ -184,6 +195,8 @@ def _append_failure_usage_events_best_effort(
             duration_ms=duration_ms,
             context="publish",
             reason_code=reason_code,
+            reason_detail=reason_detail,
+            error_class=error_class,
         )
     except Exception:
         return
@@ -215,7 +228,28 @@ def _reason_code_from_error(err: PublishError) -> str:
         return "git_push_failed"
     if "--push requires --commit" in msg:
         return "push_requires_commit"
+    if "rollup contract check failed" in msg:
+        return "rollup_contract_failed"
     return "publish_failed"
+
+
+def _error_class_from_reason_code(reason_code: str) -> str:
+    if reason_code in {"unknown_skill", "source_root_missing", "repo_root_missing", "repo_not_git", "push_requires_commit"}:
+        return "input"
+    if reason_code in {"validation_failed"}:
+        return "validation"
+    if reason_code in {"regression_runner_missing", "regression_failed", "snapshot_bootstrap_failed"}:
+        return "regression"
+    if reason_code in {"rollup_contract_failed"}:
+        return "contract"
+    if reason_code in {"git_add_failed", "git_commit_failed", "git_push_failed"}:
+        return "git"
+    return "runtime"
+
+
+def _reason_detail_from_error(err: PublishError) -> str:
+    text = " ".join(str(err).split())
+    return text[:160]
 
 
 def _parse_semver(version: str) -> Tuple[int, int, int]:
@@ -366,6 +400,46 @@ def _run_regressions(
     return report
 
 
+def _run_rollup_contract_check(source_root: Path) -> Dict[str, Any]:
+    checker = source_root / "skill-adoption-analytics" / "scripts" / "check_rollup_contract.py"
+    fixtures = source_root / "skill-adoption-analytics" / "tests" / "fixtures"
+    golden = source_root / "skill-adoption-analytics" / "tests" / "golden" / "roadmap_rollup.expected.json"
+    schema = source_root / "skill-adoption-analytics" / "references" / "roadmap_rollup.schema.json"
+    releases = fixtures / "rollup_releases.jsonl"
+    events = fixtures / "rollup_events.jsonl"
+    output = source_root / "data" / "rollup_contract.actual.json"
+
+    missing = [p for p in [checker, releases, events, schema, golden] if not p.exists()]
+    if missing:
+        raise PublishError("rollup contract check failed: missing files")
+
+    cmd = [
+        "python3",
+        str(checker),
+        "--releases",
+        str(releases),
+        "--events",
+        str(events),
+        "--schema",
+        str(schema),
+        "--expected",
+        str(golden),
+        "--output",
+        str(output),
+        "--json",
+    ]
+    rc, out, err = _run(cmd, cwd=source_root)
+    if rc not in (0, 2):
+        raise PublishError(f"rollup contract check failed: {err or out}")
+    payload = json.loads(out) if out.strip() else {}
+    if not isinstance(payload, dict):
+        raise PublishError("rollup contract check failed: invalid json output")
+    payload["rc"] = rc
+    if rc != 0:
+        raise PublishError("rollup contract check failed: drift detected")
+    return payload
+
+
 def _git_commit(repo_root: Path, message: str, paths: List[str]) -> Tuple[bool, str]:
     rc, out, err = _run(["git", "status", "--short"], cwd=repo_root)
     if rc != 0:
@@ -408,6 +482,7 @@ def publish(
     bump_migration: str,
     run_regressions: bool,
     bootstrap_missing_snapshots: bool,
+    run_rollup_contract: bool,
 ) -> Dict[str, Any]:
     started = time.monotonic()
     if not source_root.exists() or not source_root.is_dir():
@@ -454,6 +529,17 @@ def publish(
         }
         if not regression_info["overall_passed"]:
             raise PublishError("regression check failed; aborting publish")
+
+    rollup_contract_info: Dict[str, Any] = {"ran": False}
+    if run_rollup_contract:
+        contract = _run_rollup_contract_check(source_root=source_root)
+        rollup_contract_info = {
+            "ran": True,
+            "ok": bool(contract.get("ok", False)),
+            "rc": int(contract.get("rc", 1)),
+            "actual_path": contract.get("actual_path", ""),
+            "expected_path": contract.get("expected_path", ""),
+        }
 
     synced: List[str] = []
     for skill_dir in skill_dirs:
@@ -502,11 +588,16 @@ def publish(
         "skills_synced": sorted(synced),
         "index_path": str(index_path),
         "versioning": version_info,
+        "counts": {
+            "skills_discovered": len(all_skill_dirs),
+            "skills_targeted": len(skill_dirs),
+        },
         "usage_events": {
             "events_path": usage_events_path,
             "appended": usage_events_count,
         },
         "regressions": regression_info,
+        "rollup_contract": rollup_contract_info,
         "committed": committed,
         "commit_info": commit_info,
         "push_info": push_info,
@@ -526,6 +617,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--version-summary", default="Automated publish", help="Version bump summary")
     parser.add_argument("--version-migration", default="", help="Version bump migration note")
     parser.add_argument("--skip-regressions", action="store_true", help="Skip regression runner precheck")
+    parser.add_argument("--skip-rollup-contract", action="store_true", help="Skip rollup contract precheck")
     parser.add_argument(
         "--no-bootstrap-missing-snapshots",
         action="store_true",
@@ -556,13 +648,17 @@ def main(argv: List[str]) -> int:
             bump_migration=args.version_migration,
             run_regressions=not args.skip_regressions,
             bootstrap_missing_snapshots=not args.no_bootstrap_missing_snapshots,
+            run_rollup_contract=not args.skip_rollup_contract,
         )
     except PublishError as err:
+        reason_code = _reason_code_from_error(err)
         _append_failure_usage_events_best_effort(
             source_root=source_root,
             skill_names=only,
             duration_ms=round((time.monotonic() - started) * 1000),
-            reason_code=_reason_code_from_error(err),
+            reason_code=reason_code,
+            reason_detail=_reason_detail_from_error(err),
+            error_class=_error_class_from_reason_code(reason_code),
         )
         print(f"error: {err}", file=sys.stderr)
         return 1
@@ -572,6 +668,11 @@ def main(argv: List[str]) -> int:
     else:
         print(f"source_root: {report['source_root']}")
         print(f"repo_root: {report['repo_root']}")
+        print(f"skills_discovered_count: {report['counts']['skills_discovered']}")
+        print(f"skills_targeted_count: {report['counts']['skills_targeted']}")
+        print("skills_targeted:")
+        for name in report["skills_targeted"]:
+            print(f"- {name}")
         print("skills_synced:")
         for name in report["skills_synced"]:
             print(f"- {name}")

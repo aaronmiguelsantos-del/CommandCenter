@@ -1,0 +1,20 @@
+---
+name: roadmap-pr-prep
+description: Generate deterministic roadmap PR artifacts from releases and usage events, including rollup JSON and markdown summary. Use when Codex needs a daily auto-prioritization output ready for commit/PR.
+---
+
+# Roadmap PR Prep
+
+Produce PR-ready roadmap artifacts in one command.
+
+## Workflow
+
+1. Build rollup + markdown summary:
+```bash
+python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo
+```
+
+2. Custom output directory:
+```bash
+python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --output-dir /absolute/path/to/repo/data/roadmap
+```

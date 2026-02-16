@@ -1,0 +1,5 @@
+version: 1
+agent:
+  display_name: Usage Failure Triage
+  short_description: Aggregate failure usage telemetry into actionable reason and skill breakdowns.
+  default_prompt: Analyze usage failure events and report top failure reasons and affected skills.

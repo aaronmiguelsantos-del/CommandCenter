@@ -33,6 +33,10 @@ python3 scripts/analyze_skill_adoption.py --events /absolute/path/to/data/skill_
 ```bash
 python3 scripts/generate_daily_rollup.py --releases /absolute/path/to/data/skill_releases.jsonl --events /absolute/path/to/data/skill_usage_events.jsonl --output /absolute/path/to/data/skill_roadmap_daily.json --json
 ```
+4. Run schema + drift contract check:
+```bash
+python3 scripts/check_rollup_contract.py --releases /absolute/path/to/releases.jsonl --events /absolute/path/to/events.jsonl --schema /absolute/path/to/references/roadmap_rollup.schema.json --expected /absolute/path/to/golden/roadmap_rollup.expected.json --output /tmp/roadmap_rollup.actual.json --json
+```
 Use explicit schema path when needed:
 ```bash
 python3 scripts/generate_daily_rollup.py --releases /absolute/path/to/data/skill_releases.jsonl --events /absolute/path/to/data/skill_usage_events.jsonl --output /absolute/path/to/data/skill_roadmap_daily.json --schema /absolute/path/to/references/roadmap_rollup.schema.json --json

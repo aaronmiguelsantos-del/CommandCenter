@@ -36,6 +36,7 @@ python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-
 Default integrated pipeline on each run:
 - auto-version-bump every discovered skill (`patch` by default)
 - run regression precheck (`skill-regression-runner`) in strict mode, scoped by `--only` when provided
+- run rollup contract precheck (`skill-adoption-analytics/scripts/check_rollup_contract.py`)
 - publish sync + index generation
 - append usage events to `data/skill_usage_events.jsonl` for targeted skills
 - append failure usage events with deterministic `reason_code` on publish errors
@@ -59,3 +60,4 @@ Default integrated pipeline on each run:
 If push fails, verify network and git remote permissions.
 If validation fails, remove blocked artifacts and retry.
 If regressions fail, fix failing snapshots/tests or run with `--skip-regressions` only when intentionally bypassing guardrails.
+If rollup contract fails, update expected rollup snapshot intentionally or use `--skip-rollup-contract` when bypassing guardrails.

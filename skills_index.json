@@ -27,6 +27,16 @@
       "description": "Generate deterministic repository health reports in human and JSON formats, enforce CI-ready exit codes, and optionally install a local app entrypoint for `python3 -m app.main report health`. Use when Codex needs to assess repo readiness, diagnose CI instability, or standardize health reporting."
     },
     {
+      "name": "roadmap-pr-prep",
+      "path": "roadmap-pr-prep",
+      "description": "Generate deterministic roadmap PR artifacts from releases and usage events, including rollup JSON and markdown summary. Use when Codex needs a daily auto-prioritization output ready for commit/PR."
+    },
+    {
+      "name": "rollup-contract-guard",
+      "path": "rollup-contract-guard",
+      "description": "Enforce roadmap rollup determinism by running schema validation plus snapshot drift checks through one local command. Use when Codex needs a single contract gate for rollup stability in local and CI flows."
+    },
+    {
       "name": "skill-adoption-analytics",
       "path": "skill-adoption-analytics",
       "description": "Compute deterministic skill usage and ROI analytics from local JSONL events, including invocation counts, success rates, latency stats, and prioritized improvement rankings. Use when Codex needs measurable adoption insights for skill roadmap decisions."
@@ -45,6 +55,11 @@
       "name": "skill-version-manager",
       "path": "skill-version-manager",
       "description": "Manage deterministic semver for skills, append release records, and store migration notes in local-first JSON artifacts. Use when Codex needs structured version bumps and release bookkeeping for skills."
+    },
+    {
+      "name": "usage-failure-triage",
+      "path": "usage-failure-triage",
+      "description": "Summarize skill usage failures by reason_code, error_class, and skill from local JSONL telemetry. Use when Codex needs high-signal triage for feedback-loop incidents."
     }
   ]
 }

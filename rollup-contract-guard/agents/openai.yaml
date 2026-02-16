@@ -1,0 +1,5 @@
+version: 1
+agent:
+  display_name: Rollup Contract Guard
+  short_description: Run deterministic rollup contract checks for schema and drift.
+  default_prompt: Run the rollup contract guard and report pass/fail with drift details.
