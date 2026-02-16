@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import time
 from pathlib import Path
 import re
 import shutil
@@ -64,6 +65,29 @@ def _discover_skills(source_root: Path) -> List[Path]:
     return skills
 
 
+def _parse_only_csv(raw: str) -> List[str]:
+    names: List[str] = []
+    seen = set()
+    for item in raw.split(","):
+        name = item.strip()
+        if not name:
+            continue
+        if name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def _select_skills(skill_dirs: List[Path], only: List[str]) -> List[Path]:
+    if not only:
+        return skill_dirs
+    by_name = {p.name: p for p in skill_dirs}
+    missing = [name for name in only if name not in by_name]
+    if missing:
+        raise PublishError(f"--only contains unknown skills: {', '.join(missing)}")
+    return [by_name[name] for name in only]
+
+
 def _validate_skill_dir(skill_dir: Path) -> List[str]:
     issues: List[str] = []
     if not (skill_dir / "SKILL.md").exists():
@@ -106,6 +130,41 @@ def _build_index(skills: List[Path]) -> Dict[str, Any]:
         "schema_version": 1,
         "skills": items,
     }
+
+
+def _append_usage_events(
+    source_root: Path,
+    skill_names: List[str],
+    status: str,
+    duration_ms: int,
+    context: str,
+) -> Tuple[str, int]:
+    if status not in {"success", "failure"}:
+        raise PublishError(f"invalid usage status: {status}")
+    if duration_ms < 0:
+        duration_ms = 0
+    events_path = source_root / "data" / "skill_usage_events.jsonl"
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).isoformat()
+    count = 0
+    with events_path.open("a", encoding="utf-8") as f:
+        for skill_name in skill_names:
+            f.write(
+                json.dumps(
+                    {
+                        "skill": skill_name,
+                        "status": status,
+                        "duration_ms": int(duration_ms),
+                        "timestamp_utc": now,
+                        "source": "skill-publisher",
+                        "context": context,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            count += 1
+    return str(events_path), count
 
 
 def _parse_semver(version: str) -> Tuple[int, int, int]:
@@ -279,6 +338,7 @@ def _git_push(repo_root: Path) -> str:
 def publish(
     source_root: Path,
     repo_root: Path,
+    only_skills: List[str],
     commit: bool,
     push: bool,
     commit_message: str,
@@ -289,6 +349,7 @@ def publish(
     run_regressions: bool,
     bootstrap_missing_snapshots: bool,
 ) -> Dict[str, Any]:
+    started = time.monotonic()
     if not source_root.exists() or not source_root.is_dir():
         raise PublishError(f"source root does not exist: {source_root}")
     if not repo_root.exists() or not repo_root.is_dir():
@@ -296,9 +357,10 @@ def publish(
     if not (repo_root / ".git").exists():
         raise PublishError(f"repo root is not a git repo: {repo_root}")
 
-    skill_dirs = _discover_skills(source_root)
-    if not skill_dirs:
+    all_skill_dirs = _discover_skills(source_root)
+    if not all_skill_dirs:
         raise PublishError("no skill directories found")
+    skill_dirs = _select_skills(all_skill_dirs, only_skills)
 
     issues: List[str] = []
     for skill_dir in skill_dirs:
@@ -341,14 +403,26 @@ def publish(
         releases_dst.parent.mkdir(parents=True, exist_ok=True)
         releases_dst.write_text(releases_src.read_text(encoding="utf-8"), encoding="utf-8")
 
-    index = _build_index(skill_dirs)
+    usage_events_path, usage_events_count = _append_usage_events(
+        source_root=source_root,
+        skill_names=[s.name for s in skill_dirs],
+        status="success",
+        duration_ms=round((time.monotonic() - started) * 1000),
+        context="publish",
+    )
+    usage_src = Path(usage_events_path)
+    usage_dst = repo_root / "data" / "skill_usage_events.jsonl"
+    usage_dst.parent.mkdir(parents=True, exist_ok=True)
+    usage_dst.write_text(usage_src.read_text(encoding="utf-8"), encoding="utf-8")
+
+    index = _build_index(all_skill_dirs)
     index_path = repo_root / "skills_index.json"
     index_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
 
     commit_info = "commit skipped"
     committed = False
     if commit:
-        commit_paths = sorted(synced + ["skills_index.json", "data/skill_releases.jsonl"])
+        commit_paths = sorted(synced + ["skills_index.json", "data/skill_releases.jsonl", "data/skill_usage_events.jsonl"])
         committed, commit_info = _git_commit(repo_root, commit_message, commit_paths)
 
     push_info = "push skipped"
@@ -361,10 +435,15 @@ def publish(
         "schema_version": 1,
         "source_root": str(source_root),
         "repo_root": str(repo_root),
-        "skills_discovered": [s.name for s in skill_dirs],
+        "skills_discovered": [s.name for s in all_skill_dirs],
+        "skills_targeted": [s.name for s in skill_dirs],
         "skills_synced": sorted(synced),
         "index_path": str(index_path),
         "versioning": version_info,
+        "usage_events": {
+            "events_path": usage_events_path,
+            "appended": usage_events_count,
+        },
         "regressions": regression_info,
         "committed": committed,
         "commit_info": commit_info,
@@ -376,6 +455,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Publish skills into a git repo clone")
     parser.add_argument("--source-root", required=True, help="Path containing skill folders")
     parser.add_argument("--repo-root", required=True, help="Git repo clone path to publish into")
+    parser.add_argument("--only", default="", help="Optional comma-separated skill names to publish")
     parser.add_argument("--commit", action="store_true", help="Commit changes")
     parser.add_argument("--push", action="store_true", help="Push changes (requires --commit)")
     parser.add_argument("--commit-message", default="Publish skill updates", help="Commit message")
@@ -399,9 +479,11 @@ def main(argv: List[str]) -> int:
     repo_root = Path(args.repo_root).expanduser().resolve()
 
     try:
+        only = _parse_only_csv(str(args.only))
         report = publish(
             source_root=source_root,
             repo_root=repo_root,
+            only_skills=only,
             commit=bool(args.commit),
             push=bool(args.push),
             commit_message=args.commit_message,

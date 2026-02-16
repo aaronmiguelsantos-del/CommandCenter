@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_utc",
+    "skills",
+    "roadmap_priority"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer"
+    },
+    "generated_utc": {
+      "type": "string"
+    },
+    "skills": {
+      "type": "array"
+    },
+    "roadmap_priority": {
+      "type": "array"
+    }
+  }
+}

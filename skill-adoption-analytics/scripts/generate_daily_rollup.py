@@ -102,11 +102,47 @@ def build_rollup(releases: List[Dict[str, Any]], events: List[Dict[str, Any]]) -
     }
 
 
+def _load_schema(path: Path) -> Dict[str, Any]:
+    try:
+        obj = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as err:
+        raise RollupError(f"invalid schema file {path}: {err}") from err
+    if not isinstance(obj, dict):
+        raise RollupError(f"schema file must be object: {path}")
+    return obj
+
+
+def _validate_report(report: Dict[str, Any], schema: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    required = schema.get("required", [])
+    props = schema.get("properties", {})
+    if not isinstance(required, list) or not isinstance(props, dict):
+        return ["invalid schema shape"]
+
+    type_map = {"integer": int, "number": (int, float), "array": list, "string": str}
+    for key in required:
+        if key not in report:
+            errors.append(f"missing required key: {key}")
+    for key, rule in props.items():
+        if key not in report or not isinstance(rule, dict):
+            continue
+        expected = rule.get("type")
+        py_t = type_map.get(expected)
+        if py_t and not isinstance(report[key], py_t):
+            errors.append(f"invalid type for {key}: expected {expected}")
+    return errors
+
+
 def parse_args(argv: List[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate daily skill roadmap rollup")
     parser.add_argument("--releases", required=True, help="Path to data/skill_releases.jsonl")
     parser.add_argument("--events", required=True, help="Path to data/skill_usage_events.jsonl")
     parser.add_argument("--output", required=True, help="Path to write rollup JSON")
+    parser.add_argument(
+        "--schema",
+        default="",
+        help="Optional rollup schema path (defaults to references/roadmap_rollup.schema.json)",
+    )
     parser.add_argument("--json", action="store_true", help="Print JSON to stdout")
     return parser.parse_args(argv)
 
@@ -116,10 +152,18 @@ def main(argv: List[str]) -> int:
     releases_path = Path(args.releases).expanduser().resolve()
     events_path = Path(args.events).expanduser().resolve()
     output_path = Path(args.output).expanduser().resolve()
+    if args.schema:
+        schema_path = Path(args.schema).expanduser().resolve()
+    else:
+        schema_path = Path(__file__).resolve().parents[1] / "references" / "roadmap_rollup.schema.json"
     try:
         releases = _load_jsonl(releases_path)
         events = _load_jsonl(events_path)
         report = build_rollup(releases, events)
+        schema = _load_schema(schema_path)
+        validation_errors = _validate_report(report, schema)
+        if validation_errors:
+            raise RollupError("schema validation failed: " + "; ".join(validation_errors))
     except RollupError as err:
         print(f"error: {err}", file=sys.stderr)
         return 1

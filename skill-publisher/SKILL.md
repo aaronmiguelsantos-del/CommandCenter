@@ -24,6 +24,10 @@ Always end with `Next upgrades (3 max)` and mark one as highest leverage.
 ```bash
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone
 ```
+Target only changed skills:
+```bash
+python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --only skill-a,skill-b
+```
 2. Commit and push:
 ```bash
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --commit --push
@@ -33,6 +37,7 @@ Default integrated pipeline on each run:
 - auto-version-bump every discovered skill (`patch` by default)
 - run regression precheck (`skill-regression-runner`) in strict mode
 - publish sync + index generation
+- append usage events to `data/skill_usage_events.jsonl` for targeted skills
 
 ## What It Enforces
 

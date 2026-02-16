@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "name": "cli-contract-guardian",
+      "path": "cli-contract-guardian",
+      "description": "Validate CLI contract stability for app.main commands, including command availability, exit codes, stdout JSON schemas, strict stderr payload schema, and snapshot drift checks. Use when Codex needs to prevent UI/CLI contract regressions before release."
+    },
+    {
+      "name": "release-readiness-orchestrator",
+      "path": "release-readiness-orchestrator",
+      "description": "Run a deterministic release go/no-go pipeline by orchestrating repo hardening checks, health checks, and CLI contract checks, then emit a single release_readiness.json verdict and CI-friendly exit code. Use when Codex needs one-command preflight before release."
+    },
+    {
+      "name": "repo-bootstrapper",
+      "path": "repo-bootstrapper",
+      "description": "Bootstrap a low-entropy, local-first Python repository with deterministic structure and one-command execution. Use when Codex needs to create or reset a project skeleton with stack variants (basic, streamlit, flask), guarded merge overwrite, and smoke tests."
+    },
+    {
+      "name": "repo-hardener",
+      "path": "repo-hardener",
+      "description": "Harden an existing repository into a low-entropy, local-first, one-command runnable project with deterministic structure, config-first defaults, smoke tests, policy checks, and measurable score output. Use when Codex needs to standardize or repair a messy Python or Node repository without destructive rewrites."
+    },
+    {
+      "name": "repo-health-reporter",
+      "path": "repo-health-reporter",
+      "description": "Generate deterministic repository health reports in human and JSON formats, enforce CI-ready exit codes, and optionally install a local app entrypoint for `python3 -m app.main report health`. Use when Codex needs to assess repo readiness, diagnose CI instability, or standardize health reporting."
+    },
+    {
+      "name": "skill-adoption-analytics",
+      "path": "skill-adoption-analytics",
+      "description": "Compute deterministic skill usage and ROI analytics from local JSONL events, including invocation counts, success rates, latency stats, and prioritized improvement rankings. Use when Codex needs measurable adoption insights for skill roadmap decisions."
+    },
+    {
+      "name": "skill-publisher",
+      "path": "skill-publisher",
+      "description": "Validate, package, index, and publish skills from a local skills workspace into a git repo clone with deterministic checks, artifact blocking, and optional commit/push automation. Use when Codex needs to publish newly built skills to GitHub consistently."
+    },
+    {
+      "name": "skill-regression-runner",
+      "path": "skill-regression-runner",
+      "description": "Run deterministic regression suites for skills, compare command outputs against golden snapshots, and fail fast on behavior drift. Use when Codex needs to prevent skill regressions before publish."
+    },
+    {
+      "name": "skill-version-manager",
+      "path": "skill-version-manager",
+      "description": "Manage deterministic semver for skills, append release records, and store migration notes in local-first JSON artifacts. Use when Codex needs structured version bumps and release bookkeeping for skills."
+    }
+  ]
+}

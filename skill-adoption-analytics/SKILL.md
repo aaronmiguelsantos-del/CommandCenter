@@ -33,6 +33,10 @@ python3 scripts/analyze_skill_adoption.py --events /absolute/path/to/data/skill_
 ```bash
 python3 scripts/generate_daily_rollup.py --releases /absolute/path/to/data/skill_releases.jsonl --events /absolute/path/to/data/skill_usage_events.jsonl --output /absolute/path/to/data/skill_roadmap_daily.json --json
 ```
+Use explicit schema path when needed:
+```bash
+python3 scripts/generate_daily_rollup.py --releases /absolute/path/to/data/skill_releases.jsonl --events /absolute/path/to/data/skill_usage_events.jsonl --output /absolute/path/to/data/skill_roadmap_daily.json --schema /absolute/path/to/references/roadmap_rollup.schema.json --json
+```
 
 ## Input Event Format
 
@@ -48,3 +52,4 @@ Each JSONL line:
 ## Schemas
 
 - `references/adoption_report.schema.json` validates analytics report output.
+- `references/roadmap_rollup.schema.json` validates daily roadmap rollup output.
