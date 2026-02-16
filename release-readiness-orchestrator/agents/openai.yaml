@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Release Readiness Orchestrator
+  short_description: Run hardener, health, and CLI-contract checks and emit one go/no-go JSON verdict.
+  default_prompt: Run release readiness checks for this repository and produce a single deterministic go/no-go report.
