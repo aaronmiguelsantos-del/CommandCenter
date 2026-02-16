@@ -138,6 +138,7 @@ def _append_usage_events(
     status: str,
     duration_ms: int,
     context: str,
+    reason_code: str = "",
 ) -> Tuple[str, int]:
     if status not in {"success", "failure"}:
         raise PublishError(f"invalid usage status: {status}")
@@ -149,22 +150,72 @@ def _append_usage_events(
     count = 0
     with events_path.open("a", encoding="utf-8") as f:
         for skill_name in skill_names:
+            row = {
+                "skill": skill_name,
+                "status": status,
+                "duration_ms": int(duration_ms),
+                "timestamp_utc": now,
+                "source": "skill-publisher",
+                "context": context,
+            }
+            if reason_code:
+                row["reason_code"] = reason_code
             f.write(
-                json.dumps(
-                    {
-                        "skill": skill_name,
-                        "status": status,
-                        "duration_ms": int(duration_ms),
-                        "timestamp_utc": now,
-                        "source": "skill-publisher",
-                        "context": context,
-                    },
-                    sort_keys=True,
-                )
+                json.dumps(row, sort_keys=True)
                 + "\n"
             )
             count += 1
     return str(events_path), count
+
+
+def _append_failure_usage_events_best_effort(
+    source_root: Path,
+    skill_names: List[str],
+    duration_ms: int,
+    reason_code: str,
+) -> None:
+    if not skill_names:
+        return
+    try:
+        _append_usage_events(
+            source_root=source_root,
+            skill_names=skill_names,
+            status="failure",
+            duration_ms=duration_ms,
+            context="publish",
+            reason_code=reason_code,
+        )
+    except Exception:
+        return
+
+
+def _reason_code_from_error(err: PublishError) -> str:
+    msg = str(err).lower()
+    if msg.startswith("--only contains unknown skills"):
+        return "unknown_skill"
+    if "source root does not exist" in msg:
+        return "source_root_missing"
+    if "repo root does not exist" in msg:
+        return "repo_root_missing"
+    if "repo root is not a git repo" in msg:
+        return "repo_not_git"
+    if msg.startswith("validation failed:"):
+        return "validation_failed"
+    if "regression runner not found" in msg:
+        return "regression_runner_missing"
+    if "regression check failed" in msg:
+        return "regression_failed"
+    if "snapshot bootstrap failed" in msg:
+        return "snapshot_bootstrap_failed"
+    if "git add failed" in msg:
+        return "git_add_failed"
+    if "git commit failed" in msg:
+        return "git_commit_failed"
+    if "git push failed" in msg:
+        return "git_push_failed"
+    if "--push requires --commit" in msg:
+        return "push_requires_commit"
+    return "publish_failed"
 
 
 def _parse_semver(version: str) -> Tuple[int, int, int]:
@@ -273,11 +324,18 @@ def _only_missing_snapshot_failures(report: Dict[str, Any]) -> bool:
     return saw_failure
 
 
-def _run_regressions(source_root: Path, strict: bool, bootstrap_missing_snapshots: bool) -> Dict[str, Any]:
+def _run_regressions(
+    source_root: Path,
+    strict: bool,
+    bootstrap_missing_snapshots: bool,
+    only_skills: List[str],
+) -> Dict[str, Any]:
     runner = source_root / "skill-regression-runner" / "scripts" / "run_skill_regressions.py"
     if not runner.exists():
         raise PublishError(f"regression runner not found: {runner}")
     cmd = ["python3", str(runner), "--source-root", str(source_root), "--json"]
+    if only_skills:
+        cmd.extend(["--only", ",".join(only_skills)])
     if strict:
         cmd.append("--strict")
     rc, out, err = _run(cmd, cwd=source_root)
@@ -291,6 +349,8 @@ def _run_regressions(source_root: Path, strict: bool, bootstrap_missing_snapshot
 
     if rc == 2 and bootstrap_missing_snapshots and _only_missing_snapshot_failures(report):
         bootstrap_cmd = ["python3", str(runner), "--source-root", str(source_root), "--update-snapshots", "--json"]
+        if only_skills:
+            bootstrap_cmd.extend(["--only", ",".join(only_skills)])
         b_rc, b_out, b_err = _run(bootstrap_cmd, cwd=source_root)
         if b_rc != 0:
             raise PublishError(f"snapshot bootstrap failed: {b_err or b_out}")
@@ -384,11 +444,13 @@ def publish(
             source_root=source_root,
             strict=True,
             bootstrap_missing_snapshots=bootstrap_missing_snapshots,
+            only_skills=[s.name for s in skill_dirs],
         )
         regression_info = {
             "ran": True,
             "overall_passed": bool(regression_report.get("overall_passed")),
             "rc": int(regression_report.get("rc", 1)),
+            "skills_targeted": regression_report.get("skills_targeted", []),
         }
         if not regression_info["overall_passed"]:
             raise PublishError("regression check failed; aborting publish")
@@ -477,9 +539,10 @@ def main(argv: List[str]) -> int:
     args = parse_args(argv)
     source_root = Path(args.source_root).expanduser().resolve()
     repo_root = Path(args.repo_root).expanduser().resolve()
+    only = _parse_only_csv(str(args.only))
+    started = time.monotonic()
 
     try:
-        only = _parse_only_csv(str(args.only))
         report = publish(
             source_root=source_root,
             repo_root=repo_root,
@@ -495,6 +558,12 @@ def main(argv: List[str]) -> int:
             bootstrap_missing_snapshots=not args.no_bootstrap_missing_snapshots,
         )
     except PublishError as err:
+        _append_failure_usage_events_best_effort(
+            source_root=source_root,
+            skill_names=only,
+            duration_ms=round((time.monotonic() - started) * 1000),
+            reason_code=_reason_code_from_error(err),
+        )
         print(f"error: {err}", file=sys.stderr)
         return 1
 

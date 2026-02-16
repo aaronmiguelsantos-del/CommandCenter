@@ -35,9 +35,10 @@ python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-
 
 Default integrated pipeline on each run:
 - auto-version-bump every discovered skill (`patch` by default)
-- run regression precheck (`skill-regression-runner`) in strict mode
+- run regression precheck (`skill-regression-runner`) in strict mode, scoped by `--only` when provided
 - publish sync + index generation
 - append usage events to `data/skill_usage_events.jsonl` for targeted skills
+- append failure usage events with deterministic `reason_code` on publish errors
 
 ## What It Enforces
 

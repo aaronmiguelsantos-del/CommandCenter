@@ -24,6 +24,10 @@ Always end with `Next upgrades (3 max)` and mark one as highest leverage.
 ```bash
 python3 scripts/run_skill_regressions.py --source-root /absolute/path/to/skills
 ```
+Run only selected skills:
+```bash
+python3 scripts/run_skill_regressions.py --source-root /absolute/path/to/skills --only skill-a,skill-b
+```
 2. Create/update snapshots intentionally:
 ```bash
 python3 scripts/run_skill_regressions.py --source-root /absolute/path/to/skills --update-snapshots

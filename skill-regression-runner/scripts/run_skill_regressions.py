@@ -36,6 +36,29 @@ def _discover_skill_dirs(source_root: Path) -> List[Path]:
     return skills
 
 
+def _parse_only_csv(raw: str) -> List[str]:
+    names: List[str] = []
+    seen = set()
+    for item in raw.split(","):
+        name = item.strip()
+        if not name:
+            continue
+        if name not in seen:
+            names.append(name)
+            seen.add(name)
+    return names
+
+
+def _select_skill_dirs(skill_dirs: List[Path], only: List[str]) -> List[Path]:
+    if not only:
+        return skill_dirs
+    by_name = {p.name: p for p in skill_dirs}
+    missing = [name for name in only if name not in by_name]
+    if missing:
+        raise RegressionError(f"--only contains unknown skills: {', '.join(missing)}")
+    return [by_name[name] for name in only]
+
+
 def _load_suite(skill_dir: Path) -> List[Dict[str, Any]]:
     suite_path = skill_dir / "tests" / "regression_suite.json"
     if not suite_path.exists():
@@ -155,11 +178,12 @@ def _case_result(
     }
 
 
-def run_regressions(source_root: Path, update_snapshots: bool, schema_path: Path) -> Dict[str, Any]:
+def run_regressions(source_root: Path, update_snapshots: bool, schema_path: Path, only_skills: List[str]) -> Dict[str, Any]:
     if not source_root.exists() or not source_root.is_dir():
         raise RegressionError(f"source root does not exist: {source_root}")
 
-    skills = _discover_skill_dirs(source_root)
+    discovered = _discover_skill_dirs(source_root)
+    skills = _select_skill_dirs(discovered, only_skills)
     report_skills: List[Dict[str, Any]] = []
 
     schema = _load_schema(schema_path)
@@ -183,6 +207,8 @@ def run_regressions(source_root: Path, update_snapshots: bool, schema_path: Path
         "update_snapshots": update_snapshots,
         "overall_passed": overall_passed,
         "snapshot_schema": str(schema_path),
+        "skills_discovered": [s.name for s in discovered],
+        "skills_targeted": [s.name for s in skills],
         "skills": report_skills,
     }
 
@@ -190,6 +216,7 @@ def run_regressions(source_root: Path, update_snapshots: bool, schema_path: Path
 def parse_args(argv: List[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run skill regression suites")
     parser.add_argument("--source-root", required=True, help="Path containing skill folders")
+    parser.add_argument("--only", default="", help="Optional comma-separated skill names to run")
     parser.add_argument("--update-snapshots", action="store_true", help="Write/refresh golden snapshots")
     parser.add_argument("--strict", action="store_true", help="Exit with code 2 on failures")
     parser.add_argument(
@@ -209,7 +236,8 @@ def main(argv: List[str]) -> int:
     else:
         schema_path = Path(__file__).resolve().parents[1] / "references" / "regression_snapshot.schema.json"
     try:
-        report = run_regressions(source_root, bool(args.update_snapshots), schema_path=schema_path)
+        only = _parse_only_csv(str(args.only))
+        report = run_regressions(source_root, bool(args.update_snapshots), schema_path=schema_path, only_skills=only)
     except RegressionError as err:
         print(f"error: {err}", file=sys.stderr)
         return 1

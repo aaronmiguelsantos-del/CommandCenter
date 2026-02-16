@@ -1,2 +1,3 @@
 {"context": "publish", "duration_ms": 7, "skill": "skill-publisher", "source": "skill-publisher", "status": "success", "timestamp_utc": "2026-02-16T02:52:07.214231+00:00"}
 {"context": "publish", "duration_ms": 7, "skill": "skill-adoption-analytics", "source": "skill-publisher", "status": "success", "timestamp_utc": "2026-02-16T02:52:07.214231+00:00"}
+{"context": "publish", "duration_ms": 1, "reason_code": "unknown_skill", "skill": "no-such-skill", "source": "skill-publisher", "status": "failure", "timestamp_utc": "2026-02-16T03:00:39.065488+00:00"}

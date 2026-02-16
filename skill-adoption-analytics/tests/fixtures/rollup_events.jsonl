@@ -1,0 +1,3 @@
+{"timestamp_utc":"2026-02-12T09:00:00+00:00","skill":"skill-publisher","status":"success","duration_ms":100}
+{"timestamp_utc":"2026-02-12T09:01:00+00:00","skill":"skill-publisher","status":"failure","duration_ms":300}
+{"timestamp_utc":"2026-02-12T09:02:00+00:00","skill":"skill-adoption-analytics","status":"success","duration_ms":500}

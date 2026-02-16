@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "generated_utc": "__NORMALIZED__",
+  "skills": [
+    {
+      "skill": "skill-adoption-analytics",
+      "latest_version": "0.4.0",
+      "latest_bump": "minor",
+      "latest_release_utc": "2026-02-11T12:00:00+00:00",
+      "latest_summary": "Analytics update",
+      "invocations": 1,
+      "success_rate": 1.0,
+      "avg_duration_ms": 500.0
+    },
+    {
+      "skill": "skill-publisher",
+      "latest_version": "1.2.3",
+      "latest_bump": "patch",
+      "latest_release_utc": "2026-02-10T10:00:00+00:00",
+      "latest_summary": "Publisher update",
+      "invocations": 2,
+      "success_rate": 0.5,
+      "avg_duration_ms": 200.0
+    }
+  ],
+  "roadmap_priority": [
+    "skill-publisher",
+    "skill-adoption-analytics"
+  ]
+}
