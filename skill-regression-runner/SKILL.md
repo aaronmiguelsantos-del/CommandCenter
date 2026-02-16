@@ -36,6 +36,10 @@ python3 scripts/run_skill_regressions.py --source-root /absolute/path/to/skills 
 ```bash
 python3 scripts/run_skill_regressions.py --source-root /absolute/path/to/skills --strict
 ```
+4. Refresh targeted snapshots after intentional CLI changes:
+```bash
+python3 scripts/run_skill_regressions.py --source-root /absolute/path/to/skills --only roadmap-pr-prep,usage-failure-triage,skill-publisher --update-snapshots --strict
+```
 
 ## Suite Format
 
@@ -58,3 +62,4 @@ Snapshots are stored in `tests/golden/<case-id>.json`.
 
 Schema validation:
 - `references/regression_snapshot.schema.json` is applied to each snapshot payload.
+- `references/nightly_local_check.schema.json` validates `nightly_local_check.json` report structure.

@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "b9894afbc0b2430c289f9c2f5217caab7ec500404664fdbb729ea59a23c44266",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"last_usage_skill\": \"skill-a\",\n  \"last_usage_source\": \"skill-publisher\",\n  \"last_usage_status\": \"success\",\n  \"publish_rc\": 0,\n  \"scenario\": \"usage_event_append\",\n  \"usage_appended\": 1\n}",
+  "stderr_head": ""
+}

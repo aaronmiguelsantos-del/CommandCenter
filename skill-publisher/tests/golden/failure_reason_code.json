@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "b359552f75c4775e44298ec038a0dacb8969f8b4acfb9c64cf9493c22f2ef555",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"error_class\": \"input\",\n  \"last_failure_skill\": \"no-such-skill\",\n  \"publish_rc\": 1,\n  \"reason_code\": \"unknown_skill\",\n  \"scenario\": \"failure_reason_code\",\n  \"stderr_contains_unknown_skill\": true\n}",
+  "stderr_head": ""
+}

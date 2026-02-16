@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 
 class TriageError(Exception):
@@ -72,6 +72,62 @@ def _parse_csv(raw: str) -> List[str]:
         seen.add(item)
         out.append(item)
     return out
+
+
+def _parse_fail_on(raw_values: List[str]) -> List[Tuple[str, int]]:
+    parsed: List[Tuple[str, int]] = []
+    seen = set()
+    for raw in raw_values:
+        for token in raw.split(","):
+            item = token.strip()
+            if not item:
+                continue
+            if ":" not in item:
+                raise TriageError(f"invalid --fail-on value (expected reason:max): {item}")
+            reason, max_raw = item.split(":", 1)
+            reason = reason.strip()
+            max_raw = max_raw.strip()
+            if not reason:
+                raise TriageError(f"invalid --fail-on reason: {item}")
+            if reason in seen:
+                raise TriageError(f"duplicate --fail-on reason: {reason}")
+            try:
+                max_allowed = int(max_raw)
+            except ValueError as err:
+                raise TriageError(f"invalid --fail-on max value for {reason}: {max_raw}") from err
+            if max_allowed < 0:
+                raise TriageError(f"--fail-on max must be >= 0 for {reason}")
+            seen.add(reason)
+            parsed.append((reason, max_allowed))
+    return parsed
+
+
+def _parse_fail_on_skill(raw_values: List[str]) -> List[Tuple[str, int]]:
+    parsed: List[Tuple[str, int]] = []
+    seen = set()
+    for raw in raw_values:
+        for token in raw.split(","):
+            item = token.strip()
+            if not item:
+                continue
+            if ":" not in item:
+                raise TriageError(f"invalid --fail-on-skill value (expected skill:max): {item}")
+            skill, max_raw = item.split(":", 1)
+            skill = skill.strip()
+            max_raw = max_raw.strip()
+            if not skill:
+                raise TriageError(f"invalid --fail-on-skill skill: {item}")
+            if skill in seen:
+                raise TriageError(f"duplicate --fail-on-skill skill: {skill}")
+            try:
+                max_allowed = int(max_raw)
+            except ValueError as err:
+                raise TriageError(f"invalid --fail-on-skill max value for {skill}: {max_raw}") from err
+            if max_allowed < 0:
+                raise TriageError(f"--fail-on-skill max must be >= 0 for {skill}")
+            seen.add(skill)
+            parsed.append((skill, max_allowed))
+    return parsed
 
 
 def _load_jsonl(
@@ -139,7 +195,83 @@ def _build_report(rows: List[Dict[str, Any]], top: int) -> Dict[str, Any]:
             {"error_class": k, "count": v}
             for k, v in sorted(by_error_class.items(), key=lambda kv: (-kv[1], kv[0]))
         ],
+        "by_skill": [{"skill": k, "count": v} for k, v in top_skills],
         "top_failed_skills": [{"skill": k, "count": v} for k, v in top_skills[:top]],
+    }
+
+
+def _evaluate_fail_on(
+    report: Dict[str, Any],
+    fail_on: List[Tuple[str, int]],
+    fail_on_total: int | None,
+    fail_on_skill: List[Tuple[str, int]],
+) -> Dict[str, Any]:
+    counts: Dict[str, int] = {}
+    for row in report.get("by_reason_code", []):
+        if not isinstance(row, dict):
+            continue
+        reason = row.get("reason_code")
+        count = row.get("count")
+        if isinstance(reason, str) and isinstance(count, int):
+            counts[reason] = count
+
+    skill_counts: Dict[str, int] = {}
+    for row in report.get("by_skill", []):
+        if not isinstance(row, dict):
+            continue
+        skill = row.get("skill")
+        count = row.get("count")
+        if isinstance(skill, str) and isinstance(count, int):
+            skill_counts[skill] = count
+
+    violations: List[Dict[str, Any]] = []
+    reason_thresholds: List[Dict[str, Any]] = []
+    skill_thresholds: List[Dict[str, Any]] = []
+    for reason, max_allowed in fail_on:
+        count = int(counts.get(reason, 0))
+        reason_thresholds.append({"reason_code": reason, "max": max_allowed})
+        if count > max_allowed:
+            violations.append(
+                {
+                    "type": "reason_code",
+                    "reason_code": reason,
+                    "count": count,
+                    "max": max_allowed,
+                }
+            )
+    for skill, max_allowed in fail_on_skill:
+        count = int(skill_counts.get(skill, 0))
+        skill_thresholds.append({"skill": skill, "max": max_allowed})
+        if count > max_allowed:
+            violations.append(
+                {
+                    "type": "skill",
+                    "skill": skill,
+                    "count": count,
+                    "max": max_allowed,
+                }
+            )
+    total_threshold: Dict[str, Any] | None = None
+    if fail_on_total is not None:
+        total_count = int(report.get("failures_total", 0))
+        total_threshold = {"max": fail_on_total}
+        if total_count > fail_on_total:
+            violations.append(
+                {
+                    "type": "total",
+                    "count": total_count,
+                    "max": fail_on_total,
+                }
+            )
+
+    return {
+        "passed": len(violations) == 0,
+        "thresholds": {
+            "reason_codes": reason_thresholds,
+            "skills": skill_thresholds,
+            "total": total_threshold,
+        },
+        "violations": violations,
     }
 
 
@@ -160,6 +292,23 @@ def _to_markdown(report: Dict[str, Any]) -> str:
         if isinstance(row, dict):
             lines.append(f"- {row.get('skill')}: {row.get('count')}")
     lines.append("")
+    fail_on = report.get("fail_on", {})
+    if isinstance(fail_on, dict) and fail_on.get("thresholds"):
+        lines.append("## Threshold Gate")
+        lines.append(f"- passed: {bool(fail_on.get('passed', True))}")
+        for row in fail_on.get("violations", []):
+            if isinstance(row, dict):
+                if row.get("type") == "reason_code":
+                    lines.append(
+                        f"- violation: reason_code={row.get('reason_code')} count={row.get('count')} max={row.get('max')}"
+                    )
+                elif row.get("type") == "skill":
+                    lines.append(f"- violation: skill={row.get('skill')} count={row.get('count')} max={row.get('max')}")
+                elif row.get("type") == "total":
+                    lines.append(f"- violation: total_failures={row.get('count')} max={row.get('max')}")
+                else:
+                    lines.append(f"- violation: {row}")
+        lines.append("")
     return "\n".join(lines) + "\n"
 
 
@@ -172,6 +321,19 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     p.add_argument("--top", type=int, default=20, help="Max top failed skills rows")
     p.add_argument("--sources", default="", help="Optional CSV list to filter source values")
     p.add_argument("--reason-codes", default="", help="Optional CSV list to filter reason_code values")
+    p.add_argument(
+        "--fail-on",
+        action="append",
+        default=[],
+        help="Reason threshold(s) as reason_code:max_failures; repeat or comma-separate for CI gating",
+    )
+    p.add_argument("--fail-on-total", type=int, default=-1, help="Max total failures allowed before exiting 2")
+    p.add_argument(
+        "--fail-on-skill",
+        action="append",
+        default=[],
+        help="Skill threshold(s) as skill:max_failures; repeat or comma-separate for CI gating",
+    )
     p.add_argument(
         "--schema",
         default="",
@@ -199,6 +361,16 @@ def main(argv: List[str]) -> int:
             reason_codes=_parse_csv(args.reason_codes),
         )
         report = _build_report(rows, top=max(1, int(args.top)))
+        fail_on = _parse_fail_on(args.fail_on)
+        fail_on_total = int(args.fail_on_total)
+        if fail_on_total < -1:
+            raise TriageError("--fail-on-total must be -1 or >= 0")
+        report["fail_on"] = _evaluate_fail_on(
+            report,
+            fail_on,
+            fail_on_total=None if fail_on_total == -1 else fail_on_total,
+            fail_on_skill=_parse_fail_on_skill(args.fail_on_skill),
+        )
     except TriageError as err:
         print(f"error: {err}", file=sys.stderr)
         return 1
@@ -215,6 +387,9 @@ def main(argv: List[str]) -> int:
 
     if args.json or not args.output:
         print(json.dumps(report, indent=2))
+    fail_on_report = report.get("fail_on", {})
+    if isinstance(fail_on_report, dict) and fail_on_report.get("passed") is False:
+        return 2
     return 0
 
 

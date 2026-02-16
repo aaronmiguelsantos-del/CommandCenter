@@ -24,6 +24,10 @@ Always end with `Next upgrades (3 max)` and mark one as highest leverage.
 ```bash
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone
 ```
+Run strict critical regressions first:
+```bash
+make regression-strict
+```
 Target only changed skills:
 ```bash
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --only skill-a,skill-b
@@ -35,6 +39,10 @@ python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-
 2. Commit and push:
 ```bash
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --commit --push
+```
+3. One-command guarded publish via Make:
+```bash
+make publish-skills REPO_ROOT=/absolute/path/to/repo-clone PUBLISH_ARGS="--only skill-a,skill-b --commit --push"
 ```
 
 Default integrated pipeline on each run:

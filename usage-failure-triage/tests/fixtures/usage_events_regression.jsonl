@@ -1,0 +1,4 @@
+{"timestamp_utc":"2026-02-12T09:00:00+00:00","skill":"skill-publisher","status":"success","duration_ms":100,"source":"skill-publisher","context":"publish"}
+{"timestamp_utc":"2026-02-12T09:01:00+00:00","skill":"skill-adoption-analytics","status":"success","duration_ms":200,"source":"skill-publisher","context":"publish"}
+{"timestamp_utc":"2026-02-12T09:02:00+00:00","skill":"no-such-skill","status":"failure","duration_ms":300,"source":"skill-publisher","context":"publish","reason_code":"unknown_skill","error_class":"input"}
+{"timestamp_utc":"2026-02-12T09:03:00+00:00","skill":"no-such-skill","status":"failure","duration_ms":250,"source":"skill-publisher","context":"publish","reason_code":"unknown_skill","error_class":"input"}

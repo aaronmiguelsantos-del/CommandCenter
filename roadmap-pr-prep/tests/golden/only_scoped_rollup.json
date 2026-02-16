@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "7e6e6435e7ac1f131346cbc94605d3030a92745fe6c9c3684aa1e1775dda0d83",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"schema_version\": 1,\n  \"stamp\": \"2026-02-16\",\n  \"rollup_path\": \"/tmp/roadmap-pr-prep-regression/roadmap_rollup_2026-02-16.json\",\n  \"summary_md_path\": \"/tmp/roadmap-pr-prep-regression/roadmap_summary_2026-02-16.md\",\n  \"top_priority\": [\n    \"skill-publisher\",\n    \"usage-failure-triage\"\n  ],\n  \"only_skills\": [\n    \"skill-publisher\",\n    \"usage-failure-triage\"\n  ],\n  \"open_pr\": {\n    \"requested\": false,\n    \"mode\": \"skipped\",\n    \"url\": \"\",\n    \"branch\": \"\",\n    \"base\": \"main\",\n    \"dry_run\": false\n  }\n}",
+  "stderr_head": ""
+}

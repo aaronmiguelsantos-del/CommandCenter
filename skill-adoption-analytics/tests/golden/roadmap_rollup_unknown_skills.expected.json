@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "generated_utc": "__NORMALIZED__",
+  "skills": [
+    {
+      "skill": "skill-adoption-analytics",
+      "latest_version": "0.4.0",
+      "latest_bump": "minor",
+      "latest_release_utc": "2026-02-11T12:00:00+00:00",
+      "latest_summary": "Analytics update",
+      "invocations": 1,
+      "success_rate": 1.0,
+      "avg_duration_ms": 70.0
+    },
+    {
+      "skill": "skill-publisher",
+      "latest_version": "1.2.3",
+      "latest_bump": "patch",
+      "latest_release_utc": "2026-02-10T10:00:00+00:00",
+      "latest_summary": "Publisher update",
+      "invocations": 1,
+      "success_rate": 1.0,
+      "avg_duration_ms": 50.0
+    },
+    {
+      "skill": "unknown-alpha",
+      "latest_version": null,
+      "latest_bump": null,
+      "latest_release_utc": null,
+      "latest_summary": null,
+      "invocations": 1,
+      "success_rate": 0.0,
+      "avg_duration_ms": 100.0
+    },
+    {
+      "skill": "unknown-zeta",
+      "latest_version": null,
+      "latest_bump": null,
+      "latest_release_utc": null,
+      "latest_summary": null,
+      "invocations": 1,
+      "success_rate": 0.0,
+      "avg_duration_ms": 100.0
+    }
+  ],
+  "roadmap_priority": [
+    "unknown-alpha",
+    "unknown-zeta",
+    "skill-publisher",
+    "skill-adoption-analytics"
+  ]
+}

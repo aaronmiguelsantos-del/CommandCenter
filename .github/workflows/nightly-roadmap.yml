@@ -38,6 +38,28 @@ jobs:
             --output-dir /tmp/nightly/roadmap \
             --json > /tmp/nightly/roadmap_pr_report.json
 
+      - name: Verify roadmap report has priorities
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+          path = "/tmp/nightly/roadmap_pr_report.json"
+          with open(path, "r", encoding="utf-8") as fh:
+              payload = json.load(fh)
+          top_priority = payload.get("top_priority")
+          if not isinstance(top_priority, list) or not top_priority:
+              print("error: roadmap_pr_report.json top_priority must be a non-empty list", file=sys.stderr)
+              raise SystemExit(1)
+          PY
+
+      - name: Verify roadmap rollup artifact exists
+        run: |
+          count="$(find /tmp/nightly/roadmap -maxdepth 1 -type f -name 'roadmap_rollup_*.json' | wc -l | tr -d ' ')"
+          if [ "${count}" -lt 1 ]; then
+            echo "error: roadmap_rollup_*.json was not produced" >&2
+            exit 1
+          fi
+
       - name: Write nightly manifest
         if: always()
         run: |

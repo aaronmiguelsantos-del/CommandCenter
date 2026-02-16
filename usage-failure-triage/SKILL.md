@@ -26,6 +26,14 @@ python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_u
 ```bash
 python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_usage_events.jsonl --sources skill-publisher --reason-codes regression_failed,git_push_failed --json
 ```
+5. CI gate by reason threshold (exit code 2 on violation):
+```bash
+python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_usage_events.jsonl --fail-on regression_failed:0 --fail-on git_push_failed:0 --json
+```
+6. CI gate by aggregate or hotspot failures:
+```bash
+python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_usage_events.jsonl --fail-on-total 5 --fail-on-skill skill-publisher:2 --json
+```
 
 Schema enforcement:
 - defaults to `../skill-adoption-analytics/references/skill_usage_events.schema.json`

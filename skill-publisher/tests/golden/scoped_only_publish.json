@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "25b1001ee11519168dd93e85129e1ac82dd809add41fedaf0b6e771b28252dc1",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"publish_rc\": 0,\n  \"scenario\": \"scoped_only_publish\",\n  \"skills_synced\": [\n    \"skill-a\"\n  ],\n  \"skills_targeted\": [\n    \"skill-a\"\n  ]\n}",
+  "stderr_head": ""
+}

@@ -19,6 +19,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Unit test rollup sort key
+        run: |
+          python3 -m unittest discover -s skill-adoption-analytics/tests -p 'test_*.py'
+
       - name: Check rollup contract
         run: |
           python3 skill-adoption-analytics/scripts/check_rollup_contract.py \
@@ -27,3 +31,20 @@ jobs:
             --schema skill-adoption-analytics/references/roadmap_rollup.schema.json \
             --expected skill-adoption-analytics/tests/golden/roadmap_rollup.expected.json \
             --output /tmp/roadmap_rollup.actual.json
+
+      - name: Check rollup contract (unknown skills)
+        run: |
+          python3 skill-adoption-analytics/scripts/check_rollup_contract.py \
+            --releases skill-adoption-analytics/tests/fixtures/rollup_releases.jsonl \
+            --events skill-adoption-analytics/tests/fixtures/rollup_events_unknown_skills.jsonl \
+            --schema skill-adoption-analytics/references/roadmap_rollup.schema.json \
+            --expected skill-adoption-analytics/tests/golden/roadmap_rollup_unknown_skills.expected.json \
+            --output /tmp/roadmap_rollup_unknown_skills.actual.json
+
+      - name: Nightly local check schema gate (initialize baseline)
+        run: |
+          make nightly-local-check
+
+      - name: Nightly local check schema gate (must be stable)
+        run: |
+          make nightly-local-check

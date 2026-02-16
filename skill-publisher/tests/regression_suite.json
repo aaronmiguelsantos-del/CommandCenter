@@ -1,0 +1,52 @@
+{
+  "cases": [
+    {
+      "id": "scoped_only_publish",
+      "command": [
+        "python3",
+        "tests/run_regression_case.py",
+        "--scenario",
+        "scoped_only_publish"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"scenario\": \"scoped_only_publish\"",
+        "\"publish_rc\": 0",
+        "\"skills_targeted\": [",
+        "\"skill-a\""
+      ]
+    },
+    {
+      "id": "usage_event_append",
+      "command": [
+        "python3",
+        "tests/run_regression_case.py",
+        "--scenario",
+        "usage_event_append"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"scenario\": \"usage_event_append\"",
+        "\"usage_appended\": 1",
+        "\"last_usage_status\": \"success\"",
+        "\"last_usage_skill\": \"skill-a\""
+      ]
+    },
+    {
+      "id": "failure_reason_code",
+      "command": [
+        "python3",
+        "tests/run_regression_case.py",
+        "--scenario",
+        "failure_reason_code"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"scenario\": \"failure_reason_code\"",
+        "\"publish_rc\": 1",
+        "\"reason_code\": \"unknown_skill\"",
+        "\"error_class\": \"input\""
+      ]
+    }
+  ]
+}

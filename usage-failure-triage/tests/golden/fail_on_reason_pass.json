@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "09018b279fcf0f72884d559fd916014c201e88aad2053eeb0ab54f47eda8f872",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"schema_version\": 1,\n  \"events_total\": 4,\n  \"failures_total\": 2,\n  \"by_reason_code\": [\n    {\n      \"reason_code\": \"unknown_skill\",\n      \"count\": 2\n    }\n  ],\n  \"by_error_class\": [\n    {\n      \"error_class\": \"input\",\n      \"count\": 2\n    }\n  ],\n  \"by_skill\": [\n    {\n      \"skill\": \"no-such-skill\",\n      \"count\": 2\n    }\n  ],\n  \"top_failed_skills\": [\n    {\n      \"skill\": \"no-such-skill\",\n      \"count\": 2\n    }\n  ],\n  \"fail_on\": {\n    \"passed\": true,",
+  "stderr_head": ""
+}

@@ -30,3 +30,11 @@ python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --open-
 ```bash
 python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --open-pr --skip-pr-if-no-change --json
 ```
+6. Scope roadmap artifacts to changed skills:
+```bash
+python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --only skill-a,skill-b --json
+```
+7. Deterministic fixture run for regression:
+```bash
+python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --releases /absolute/path/to/rollup_releases.jsonl --events /absolute/path/to/rollup_events.jsonl --stamp 2026-02-16 --only skill-a,skill-b --json
+```

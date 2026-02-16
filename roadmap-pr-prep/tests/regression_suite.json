@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "id": "only_scoped_rollup",
+      "command": [
+        "python3",
+        "scripts/prepare_roadmap_pr.py",
+        "--repo-root",
+        "..",
+        "--releases",
+        "../skill-adoption-analytics/tests/fixtures/rollup_releases.jsonl",
+        "--events",
+        "../skill-adoption-analytics/tests/fixtures/rollup_events.jsonl",
+        "--output-dir",
+        "/tmp/roadmap-pr-prep-regression",
+        "--stamp",
+        "2026-02-16",
+        "--only",
+        "skill-publisher,usage-failure-triage",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"stamp\": \"2026-02-16\"",
+        "\"only_skills\": [",
+        "\"skill-publisher\"",
+        "\"usage-failure-triage\""
+      ]
+    }
+  ]
+}

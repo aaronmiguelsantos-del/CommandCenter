@@ -1,0 +1,4 @@
+{"timestamp_utc":"2026-02-12T10:00:00+00:00","skill":"unknown-zeta","status":"failure","duration_ms":100}
+{"timestamp_utc":"2026-02-12T10:01:00+00:00","skill":"unknown-alpha","status":"failure","duration_ms":100}
+{"timestamp_utc":"2026-02-12T10:02:00+00:00","skill":"skill-publisher","status":"success","duration_ms":50}
+{"timestamp_utc":"2026-02-12T10:03:00+00:00","skill":"skill-adoption-analytics","status":"success","duration_ms":70}

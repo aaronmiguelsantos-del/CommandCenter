@@ -1,0 +1,72 @@
+{
+  "cases": [
+    {
+      "id": "fail_on_reason_pass",
+      "command": [
+        "python3",
+        "scripts/triage_usage_failures.py",
+        "--events",
+        "tests/fixtures/usage_events_regression.jsonl",
+        "--fail-on",
+        "unknown_skill:2",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"passed\": true",
+        "\"reason_code\": \"unknown_skill\""
+      ]
+    },
+    {
+      "id": "fail_on_reason_violation",
+      "command": [
+        "python3",
+        "scripts/triage_usage_failures.py",
+        "--events",
+        "tests/fixtures/usage_events_regression.jsonl",
+        "--fail-on",
+        "unknown_skill:1",
+        "--json"
+      ],
+      "expect_exit": 2,
+      "expect_stdout_contains": [
+        "\"passed\": false",
+        "\"type\": \"reason_code\""
+      ]
+    },
+    {
+      "id": "fail_on_total_violation",
+      "command": [
+        "python3",
+        "scripts/triage_usage_failures.py",
+        "--events",
+        "tests/fixtures/usage_events_regression.jsonl",
+        "--fail-on-total",
+        "1",
+        "--json"
+      ],
+      "expect_exit": 2,
+      "expect_stdout_contains": [
+        "\"passed\": false",
+        "\"type\": \"total\""
+      ]
+    },
+    {
+      "id": "fail_on_skill_violation",
+      "command": [
+        "python3",
+        "scripts/triage_usage_failures.py",
+        "--events",
+        "tests/fixtures/usage_events_regression.jsonl",
+        "--fail-on-skill",
+        "no-such-skill:1",
+        "--json"
+      ],
+      "expect_exit": 2,
+      "expect_stdout_contains": [
+        "\"passed\": false",
+        "\"type\": \"skill\""
+      ]
+    }
+  ]
+}
