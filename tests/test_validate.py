@@ -200,3 +200,49 @@ def test_validate_registry_cycle_detected(tmp_path: Path, monkeypatch, capsys) -
     assert app_main(["validate"]) == 1
     out = capsys.readouterr().out
     assert "REGISTRY_CYCLE_DETECTED" in out
+
+
+def test_validate_registry_owners_invalid_type(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    bootstrap_repo()
+
+    system_id = "sys-owners-type"
+    _write_registry_payload(
+        tmp_path,
+        [
+            {
+                "system_id": system_id,
+                "contracts_glob": f"data/contracts/{system_id}-*.json",
+                "events_glob": f"data/logs/{system_id}-events.jsonl",
+                "owners": "aaron",
+            }
+        ],
+    )
+    _write_valid_system_files(tmp_path, system_id)
+
+    assert app_main(["validate"]) == 1
+    out = capsys.readouterr().out
+    assert "REGISTRY_OWNERS_INVALID" in out
+
+
+def test_validate_backward_compat_missing_v2_optional_fields(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    bootstrap_repo()
+
+    # Backward compatibility: tier/depends_on/owners omitted.
+    system_id = "sys-legacy"
+    _write_registry_payload(
+        tmp_path,
+        [
+            {
+                "system_id": system_id,
+                "contracts_glob": f"data/contracts/{system_id}-*.json",
+                "events_glob": f"data/logs/{system_id}-events.jsonl",
+            }
+        ],
+    )
+    _write_valid_system_files(tmp_path, system_id)
+
+    assert app_main(["validate"]) == 0
+    out = capsys.readouterr().out
+    assert "VALIDATE_OK" in out

@@ -5,10 +5,14 @@
 - `python -m app.main health`
 - `python -m app.main health --all`
 - `python -m app.main health --all --strict`
+- `python -m app.main health --all --strict --enforce-sla`
 - `python -m app.main report health`
 - `python -m app.main report health --json`
+- `python -m app.main report health --strict --enforce-sla --json`
+- `python -m app.main report snapshot --write --json`
 - `python -m app.main report health --no-hints`
 - `python -m app.main validate`
+- `python -m app.main failcase create --path /tmp/codex-kernel-failcase --mode sla-breach`
 - `python -m app.main system add <system_id> "<name>"`
 - `python -m app.main system list`
 - `python -m app.main contract new <system_id> "<name>"`

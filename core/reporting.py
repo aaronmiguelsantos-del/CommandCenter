@@ -6,15 +6,17 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from core.events import last_event_ts_from_glob
 from core.health import compute_health_for_system
 from core.graph import GraphView, build_graph
 from core.impact import Impacted, compute_impact, render_impact_line
 from core.registry import load_registry, load_registry_systems, registry_path as registry_file_path
-from core.storage import list_event_rows
+from core.sla import SLA_THRESHOLDS_DAYS, sla_status, tier_threshold_days
 
 
 # NOTE: no new deps; stdlib only.
 
+_TIER_WEIGHT = {"prod": 4.0, "staging": 3.0, "dev": 2.0, "sample": 1.0}
 
 def _parse_ts(value: str) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
@@ -102,6 +104,7 @@ def _drift_contributors(
     systems: list[dict[str, Any]],
     *,
     now_utc: datetime,
+    registry_path: str | None = None,
 ) -> list[tuple[str, int]]:
     drops: list[tuple[str, int]] = []
     t0 = now_utc
@@ -113,7 +116,7 @@ def _drift_contributors(
         cached = cache.get(key)
         if cached is not None:
             return cached
-        payload = compute_health_for_system(sid, contracts_glob, events_glob, as_of=as_of)
+        payload = compute_health_for_system(sid, contracts_glob, events_glob, registry_path=registry_path, as_of=as_of)
         cache[key] = payload
         return payload
 
@@ -220,7 +223,7 @@ def load_history(tail: int = 2000, path: str | Path | None = None) -> list[dict[
 def _current_system_health(registry_path: str | None) -> list[dict[str, Any]]:
     systems: list[dict[str, Any]] = []
     for spec in load_registry(registry_path):
-        payload = compute_health_for_system(spec.system_id, spec.contracts_glob, spec.events_glob)
+        payload = compute_health_for_system(spec.system_id, spec.contracts_glob, spec.events_glob, registry_path=registry_path)
         systems.append(
             {
                 "system_id": spec.system_id,
@@ -235,32 +238,22 @@ def _current_system_health(registry_path: str | None) -> list[dict[str, Any]]:
 
 def _system_recency(registry_path: str | None) -> list[dict[str, Any]]:
     now = datetime.now(UTC)
-    is_sample_by_system = {spec.system_id: spec.is_sample for spec in load_registry(registry_path)}
-    last_by_system: dict[str, datetime] = {}
-
-    for row in list_event_rows():
-        system_id = str(row.get("system_id", "")).strip()
-        if not system_id:
-            continue
-        ts = _parse_ts(str(row.get("ts", "")))
-        if ts is None:
-            continue
-        current = last_by_system.get(system_id)
-        if current is None or ts > current:
-            last_by_system[system_id] = ts
-
     recency: list[dict[str, Any]] = []
-    for system_id, is_sample in sorted(is_sample_by_system.items()):
-        last = last_by_system.get(system_id)
+
+    for spec in load_registry(registry_path):
+        last = last_event_ts_from_glob(spec.events_glob, registry_path=registry_path)
         days = 999999 if last is None else max(0, int((now - last).total_seconds() // 86400))
         recency.append(
             {
-                "system_id": system_id,
-                "is_sample": is_sample,
+                "system_id": spec.system_id,
+                "is_sample": spec.is_sample,
                 "days_since_last_event": days,
+                "last_event_ts": _iso_utc(last) if last is not None else None,
                 "stale": days > 14,
             }
         )
+
+    recency.sort(key=lambda row: str(row.get("system_id", "")))
     return recency
 
 
@@ -284,6 +277,101 @@ def _aggregate_non_sample(current_systems: list[dict[str, Any]]) -> dict[str, An
         "score_total": round(avg_score, 2),
         "strict_ready_now": strict_ready_now,
     }
+
+
+def _augment_current_systems(
+    current_systems: list[dict[str, Any]],
+    systems: list[Any],
+    recency_rows: list[dict[str, Any]],
+    *,
+    as_of: datetime,
+) -> list[dict[str, Any]]:
+    recency_by_id = {str(row.get("system_id", "")): row for row in recency_rows}
+    by_id = {str(spec.system_id): spec for spec in systems}
+    out: list[dict[str, Any]] = []
+    for row in sorted(current_systems, key=lambda r: str(r.get("system_id", ""))):
+        system_id = str(row.get("system_id", "")).strip()
+        spec = by_id.get(system_id)
+        tier = str(getattr(spec, "tier", "prod")) if spec is not None else "prod"
+        owners = sorted([str(x) for x in getattr(spec, "owners", ())]) if spec is not None else []
+        recency = recency_by_id.get(system_id, {})
+        days = int(recency.get("days_since_last_event", 999999))
+        last_event_ts = recency.get("last_event_ts")
+        status = sla_status(last_event_ts, tier, as_of=as_of)
+        max_days = tier_threshold_days(tier)
+        escalation_hint = (
+            f"Escalate to owners ({','.join(owners)}) and emit event within {max_days}d."
+            if owners
+            else f"Assign owner and emit event within {max_days}d."
+        )
+        enriched = {
+            **row,
+            "tier": tier,
+            "owners": owners,
+            "days_since_last_event": days,
+            "last_event_ts": last_event_ts,
+            "sla_status": status,
+            "sla_max_days": max_days,
+            "escalation_hint": escalation_hint,
+        }
+        out.append(enriched)
+    return out
+
+
+def _risk_scores(g: GraphView, sources: list[str]) -> list[dict[str, Any]]:
+    if not sources:
+        return []
+    risk_rows: list[dict[str, Any]] = []
+    for source in sorted(set(sources)):
+        tier = g.tiers.get(source, "prod")
+        tier_weight = _TIER_WEIGHT.get(tier, 1.0)
+        _, impacted = compute_impact(g, [source])
+        dependents_count = len(impacted)
+        avg_distance = (sum(x.distance for x in impacted) / dependents_count) if dependents_count else 0.0
+        avg_distance_weight = 1.0 if dependents_count == 0 else (1.0 + (1.0 / (1.0 + avg_distance)))
+        risk_score = round(tier_weight * (1.0 + dependents_count) * avg_distance_weight, 2)
+        risk_rows.append(
+            {
+                "system_id": source,
+                "tier": tier,
+                "dependents_count": dependents_count,
+                "avg_distance": round(avg_distance, 2),
+                "risk_score": risk_score,
+                "impacted": [
+                    {"system_id": x.system_id, "distance": x.distance, "tier": x.tier}
+                    for x in impacted
+                ],
+            }
+        )
+    risk_rows.sort(key=lambda r: (-float(r["risk_score"]), str(r["system_id"])))
+    return risk_rows
+
+
+def _sla_hints(current_systems: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    hints: list[dict[str, Any]] = []
+    breach_rows = [
+        row for row in current_systems
+        if not row.get("is_sample", False) and row.get("sla_status") in {"breach", "unknown"}
+    ]
+    for row in sorted(breach_rows, key=lambda r: (str(r.get("sla_status", "")), str(r.get("system_id", "")))):
+        severity = "high" if row.get("sla_status") == "breach" else "med"
+        system_id = str(row.get("system_id", ""))
+        owners = [str(x) for x in row.get("owners", [])]
+        why = (
+            f"{system_id} is {row.get('sla_status')} ({int(row.get('days_since_last_event', 0))}d since last event, "
+            f"SLA max {int(row.get('sla_max_days', 0))}d)."
+        )
+        hints.append(
+            {
+                "severity": severity,
+                "title": "SLA escalation required",
+                "why": why,
+                "fix": str(row.get("escalation_hint", "")),
+                "systems": [system_id],
+                "owners": owners,
+            }
+        )
+    return hints[:2]
 
 
 def _hint_template(code: str) -> dict[str, str]:
@@ -474,6 +562,8 @@ def compute_report(
         }
         for s in systems
     ]
+    recency_rows = _system_recency(registry_path)
+    current_systems = _augment_current_systems(current_systems, systems, recency_rows, as_of=now)
     now_non_sample = _aggregate_non_sample(current_systems)
     strict_ready_now = bool(now_non_sample["strict_ready_now"])
 
@@ -531,12 +621,13 @@ def compute_report(
     top_drift_line = None
     drift_sources: list[str] = []
     if include_hints:
+        hints.extend(_sla_hints(current_systems))
         for hint in hints:
             if str(hint.get("severity", "")).lower() == "high" and hint.get("systems"):
                 hint["why"] = str(hint.get("why", "")) + _impact_suffix(g, list(hint.get("systems", [])))
 
         now_utc = _now_utc()
-        contributors = _drift_contributors(registry_rows, now_utc=now_utc)
+        contributors = _drift_contributors(registry_rows, now_utc=now_utc, registry_path=registry_path)
         drift_hint = build_drift_hint(
             points=trend_points,
             rolling_avg=trend.get("rolling_avg"),
@@ -553,6 +644,31 @@ def compute_report(
 
     sources = _select_impact_sources(current_systems=current_systems, drift_sources=drift_sources)
     src, impacted = compute_impact(g, sources)
+    risk_rows = _risk_scores(g, src)
+    if include_hints and risk_rows:
+        top = risk_rows[0]
+        impacted_ids = [str(row["system_id"]) for row in top["impacted"][:3]]
+        impacted_txt = ",".join(impacted_ids) if impacted_ids else "none"
+        hints.append(
+            {
+                "severity": "med",
+                "title": "Prioritize highest blast-radius source",
+                "why": (
+                    f"{top['system_id']} has the highest risk score ({top['risk_score']}) "
+                    f"with {top['dependents_count']} impacted dependents."
+                ),
+                "fix": f"Fix {top['system_id']} first; impacted systems: {impacted_txt}.",
+                "systems": [str(top["system_id"])],
+                "owners": g.owners.get(str(top["system_id"]), []),
+            }
+        )
+    hints = sorted(
+        hints,
+        key=lambda h: (
+            {"high": 0, "med": 1, "low": 2}.get(str(h.get("severity", "low")).lower(), 3),
+            str(h.get("title", "")),
+        ),
+    )
 
     report = {
         "report_version": "2.0",
@@ -570,13 +686,18 @@ def compute_report(
             "strict_requested": bool(strict),
             "hints_count": len(hints),
             "top_drift_24h": top_drift_line,
+            "sla": {
+                "thresholds_days": {
+                    k: int(v) for k, v in sorted(SLA_THRESHOLDS_DAYS.items(), key=lambda kv: kv[0])
+                }
+            },
         },
         "trend": trend,
         "violations": {
             "top": violation_rows,
         },
         "systems": {
-            "recency": _system_recency(registry_path),
+            "recency": recency_rows,
             "status": current_systems,
         },
         "impact": {
@@ -586,6 +707,9 @@ def compute_report(
                 for it in impacted
             ],
         },
+        "risk": {
+            "ranked": risk_rows,
+        },
         "hints": hints,
     }
 
@@ -593,6 +717,7 @@ def compute_report(
         "strict_blocked_tiers": ["prod"],
         "include_staging": False,
         "include_dev": False,
+        "enforce_sla": False,
     }
     tiers = policy.get("strict_blocked_tiers", ["prod"])
     tiers_sorted = sorted([str(t) for t in tiers if str(t)])
@@ -601,6 +726,7 @@ def compute_report(
         "strict_blocked_tiers": tiers_sorted,
         "include_staging": bool(policy.get("include_staging", False)),
         "include_dev": bool(policy.get("include_dev", False)),
+        "enforce_sla": bool(policy.get("enforce_sla", False)),
     }
     return report
 
@@ -727,3 +853,51 @@ def render_report_health_text(report: dict[str, Any]) -> str:
     lines.append(_trend_drift_line(trend, _now_utc()))
 
     return "\n".join(lines)
+
+
+def build_snapshot_ledger_entry(report: dict[str, Any]) -> dict[str, Any]:
+    summary = report.get("summary", {}) if isinstance(report, dict) else {}
+    policy = report.get("policy", {}) if isinstance(report, dict) else {}
+    systems_status = report.get("systems", {}).get("status", []) if isinstance(report, dict) else []
+    rows: list[dict[str, Any]] = []
+    if isinstance(systems_status, list):
+        for row in sorted(
+            [r for r in systems_status if isinstance(r, dict)],
+            key=lambda r: str(r.get("system_id", "")),
+        ):
+            rows.append(
+                {
+                    "system_id": str(row.get("system_id", "")),
+                    "status": str(row.get("status", "unknown")),
+                    "score_total": float(row.get("score_total", 0.0)),
+                    "violations": sorted([str(v) for v in (row.get("violations") or [])]),
+                    "tier": str(row.get("tier", "prod")),
+                    "is_sample": bool(row.get("is_sample", False)),
+                    "sla_status": str(row.get("sla_status", "ok")),
+                }
+            )
+    return {
+        "ts": _iso_utc(_now_utc()),
+        "summary": {
+            "current_status": str(summary.get("current_status", "unknown")),
+            "current_score": float(summary.get("current_score", 0.0)),
+            "now_non_sample": summary.get("now_non_sample", {}),
+            "strict_ready_now": bool(summary.get("strict_ready_now", False)),
+        },
+        "policy": {
+            "strict_blocked_tiers": sorted([str(x) for x in policy.get("strict_blocked_tiers", ["prod"])]),
+            "include_staging": bool(policy.get("include_staging", False)),
+            "include_dev": bool(policy.get("include_dev", False)),
+            "enforce_sla": bool(policy.get("enforce_sla", False)),
+        },
+        "systems": rows,
+    }
+
+
+def write_snapshot_ledger(report: dict[str, Any], path: str | Path | None = None) -> Path:
+    ledger_path = Path(path) if path is not None else Path("data/snapshots/report_snapshot_history.jsonl")
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    entry = build_snapshot_ledger_entry(report)
+    with ledger_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, sort_keys=True) + "\n")
+    return ledger_path

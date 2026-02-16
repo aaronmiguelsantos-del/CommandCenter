@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from core.globs import iter_glob
 from core.health import _parse_iso_utc
 from core.registry import VALID_TIERS, registry_path
 
@@ -112,6 +113,10 @@ def validate_repo(path: str | Path | None = None) -> list[str]:
                 if isinstance(dep, str) and dep.strip():
                     depends_on.append(dep.strip())
 
+        owners_raw = row.get("owners", None)
+        if owners_raw is not None and not isinstance(owners_raw, list):
+            errors.append(_err("REGISTRY_OWNERS_INVALID", system_id))
+
         systems.append(
             {
                 "system_id": system_id,
@@ -163,7 +168,7 @@ def validate_repo(path: str | Path | None = None) -> list[str]:
 
         if contracts_glob:
             try:
-                contract_paths = sorted(Path().glob(contracts_glob))
+                contract_paths = iter_glob(contracts_glob, reg_path)
             except Exception as exc:
                 errors.append(_err("GLOB_NO_MATCH", f"{system_id}: contracts_glob -> {contracts_glob}: {exc}"))
                 contract_paths = []
@@ -172,7 +177,7 @@ def validate_repo(path: str | Path | None = None) -> list[str]:
 
         if events_glob:
             try:
-                event_paths = sorted(Path().glob(events_glob))
+                event_paths = iter_glob(events_glob, reg_path)
             except Exception as exc:
                 errors.append(_err("GLOB_NO_MATCH", f"{system_id}: events_glob -> {events_glob}: {exc}"))
                 event_paths = []

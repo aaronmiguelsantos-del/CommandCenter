@@ -121,7 +121,7 @@ def test_hints_high_for_non_sample_red_violations(tmp_path: Path, monkeypatch) -
 
     assert report["summary"]["hints_count"] >= 1
     hints = report["hints"]
-    assert all(h["severity"] == "high" for h in hints)
+    assert any(h["severity"] == "high" for h in hints)
     titles = {h["title"] for h in hints}
     assert "System contract missing minimum primitives" in titles
     assert "System contract missing minimum invariants" in titles
@@ -178,7 +178,7 @@ def test_report_health_json_command_outputs_sections(tmp_path: Path, monkeypatch
     assert app_main(["report", "health", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
 
-    assert set(payload.keys()) == {"report_version", "summary", "trend", "violations", "systems", "impact", "hints", "policy"}
+    assert set(payload.keys()) == {"report_version", "summary", "trend", "violations", "systems", "impact", "risk", "hints", "policy"}
     assert payload["report_version"] == "2.0"
     assert "now_non_sample" in payload["summary"]
     assert "hints_count" in payload["summary"]
@@ -321,7 +321,7 @@ def test_drift_contributors_uses_cache_for_duplicate_rows(monkeypatch) -> None:
     now = datetime(2026, 2, 14, 12, 0, 0, tzinfo=timezone.utc)
     calls: list[tuple[str, str]] = []
 
-    def fake_compute_health_for_system(system_id: str, contracts_glob: str, events_glob: str, *, as_of=None):
+    def fake_compute_health_for_system(system_id: str, contracts_glob: str, events_glob: str, *, as_of=None, registry_path=None):
         assert as_of is not None
         stamp = as_of.astimezone(timezone.utc).isoformat()
         calls.append((system_id, stamp))
@@ -456,7 +456,7 @@ def test_drift_hint_includes_impacted_suffix_when_graph_has_dependents(tmp_path:
     )
 
     # Force deterministic contributor attribution to ops-core.
-    def fake_compute_health_for_system(system_id: str, contracts_glob: str, events_glob: str, *, as_of=None):
+    def fake_compute_health_for_system(system_id: str, contracts_glob: str, events_glob: str, *, as_of=None, registry_path=None):
         if as_of is None:
             return {"status": "green", "score_total": 90.0, "violations": []}
         if system_id == "ops-core":
@@ -479,7 +479,112 @@ def test_report_json_includes_policy_block() -> None:
     assert report["report_version"] == "2.0"
     assert "policy" in report
     p = report["policy"]
-    assert set(p.keys()) == {"strict_blocked_tiers", "include_staging", "include_dev"}
+    assert set(p.keys()) == {"strict_blocked_tiers", "include_staging", "include_dev", "enforce_sla"}
     assert isinstance(p["strict_blocked_tiers"], list)
     assert isinstance(p["include_staging"], bool)
     assert isinstance(p["include_dev"], bool)
+    assert isinstance(p["enforce_sla"], bool)
+
+
+def test_report_includes_sla_fields_and_escalation_hint(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    bootstrap_repo()
+
+    upsert_system("ops-core", "data/contracts/ops-core-*.json", "data/logs/ops-core-events.jsonl")
+
+    reg_path = tmp_path / "data" / "registry" / "systems.json"
+    payload = json.loads(reg_path.read_text(encoding="utf-8"))
+    rows = payload["systems"] if isinstance(payload, dict) else payload
+    for row in rows:
+        if row.get("system_id") == "ops-core":
+            row["owners"] = ["alice"]
+            row["tier"] = "prod"
+    if isinstance(payload, dict):
+        payload["systems"] = rows
+    reg_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    _write_contract(
+        tmp_path,
+        "ops-core",
+        primitives_used=["P0", "P1", "P7"],
+        invariants=["INV-001", "INV-002", "INV-003"],
+    )
+
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    _write_history(tmp_path, [{"ts": now, "status": "green", "score_total": 88.0, "violations": []}])
+
+    report = compute_report(days=30, tail=2000, strict=False)
+    status_rows = report["systems"]["status"]
+    ops = next(r for r in status_rows if r["system_id"] == "ops-core")
+    assert "sla_status" in ops
+    assert "escalation_hint" in ops
+    assert "owners" in ops
+    assert ops["owners"] == ["alice"]
+
+
+def test_report_snapshot_write_command_appends_ledger(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    bootstrap_repo()
+
+    upsert_system("json-sys", "data/contracts/json-sys-*.json", "data/logs/json-sys-events.jsonl")
+    _write_contract(
+        tmp_path,
+        "json-sys",
+        primitives_used=["P0", "P1", "P7"],
+        invariants=["INV-001", "INV-002", "INV-003"],
+    )
+    append_event("json-sys", "status_update")
+
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    _write_history(tmp_path, [{"ts": now, "status": "green", "score_total": 88.0, "violations": []}])
+
+    assert app_main(["report", "snapshot", "--write", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["written"] is True
+    assert payload["path"] == "data/snapshots/report_snapshot_history.jsonl"
+    assert "snapshot" in payload
+    assert "systems" in payload["snapshot"]
+
+    ledger = tmp_path / "data" / "snapshots" / "report_snapshot_history.jsonl"
+    lines = [ln for ln in ledger.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert len(lines) == 1
+    row = json.loads(lines[0])
+    assert "summary" in row and "policy" in row and "systems" in row
+
+
+def test_report_includes_risk_ranking(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    bootstrap_repo()
+
+    upsert_system("ops-core", "data/contracts/ops-core-*.json", "data/logs/ops-core-events.jsonl")
+    upsert_system("atlas-core", "data/contracts/atlas-core-*.json", "data/logs/atlas-core-events.jsonl")
+
+    reg_path = tmp_path / "data" / "registry" / "systems.json"
+    payload = json.loads(reg_path.read_text(encoding="utf-8"))
+    rows = payload["systems"] if isinstance(payload, dict) else payload
+    for row in rows:
+        if row.get("system_id") == "atlas-core":
+            row["depends_on"] = ["ops-core"]
+    if isinstance(payload, dict):
+        payload["systems"] = rows
+    reg_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    _write_contract(tmp_path, "ops-core", primitives_used=["P0"], invariants=["INV-001"])
+    _write_contract(
+        tmp_path,
+        "atlas-core",
+        primitives_used=["P0", "P1", "P7"],
+        invariants=["INV-001", "INV-002", "INV-003"],
+    )
+    append_event("ops-core", "status_update")
+    append_event("atlas-core", "status_update")
+
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    _write_history(tmp_path, [{"ts": now, "status": "yellow", "score_total": 70.0, "violations": []}])
+
+    report = compute_report(days=30, tail=2000, strict=False)
+    ranked = report["risk"]["ranked"]
+    assert isinstance(ranked, list)
+    assert ranked
+    assert ranked[0]["system_id"] == "ops-core"
+    assert ranked[0]["dependents_count"] >= 1

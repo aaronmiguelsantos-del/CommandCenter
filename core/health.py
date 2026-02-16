@@ -5,8 +5,16 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from core.globs import iter_glob
 from core.models import Health
 from core.storage import PRIMITIVES_DIR, SCHEMAS_DIR, list_contracts, list_event_rows, read_jsonl
+
+
+HIGH_VIOLATIONS = {"PRIMITIVES_MIN", "INVARIANTS_MIN"}
+
+
+def _has_high_violations(violations: list[str]) -> bool:
+    return any(str(v) in HIGH_VIOLATIONS for v in violations)
 
 
 def _count_invariants() -> int:
@@ -54,9 +62,9 @@ def _list_count(value: Any) -> int:
     return 0
 
 
-def _read_contracts_from_glob(pattern: str) -> list[dict[str, Any]]:
+def _read_contracts_from_glob(pattern: str, registry_path: str | Path | None = None) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for path in sorted(Path().glob(pattern)):
+    for path in iter_glob(pattern, registry_path or "data/registry/systems.json"):
         if not path.is_file():
             continue
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -69,10 +77,11 @@ def _read_events_from_glob(
     pattern: str,
     system_id: str,
     *,
+    registry_path: str | Path | None = None,
     as_of: datetime | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for path in sorted(Path().glob(pattern)):
+    for path in iter_glob(pattern, registry_path or "data/registry/systems.json"):
         if not path.is_file():
             continue
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -105,9 +114,9 @@ def _read_events_from_glob(
     return filtered
 
 
-def _count_events_lines_from_glob(pattern: str) -> int:
+def _count_events_lines_from_glob(pattern: str, registry_path: str | Path | None = None) -> int:
     count = 0
-    for path in sorted(Path().glob(pattern)):
+    for path in iter_glob(pattern, registry_path or "data/registry/systems.json"):
         if not path.is_file():
             continue
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -191,7 +200,7 @@ def _score_health(
     event_rows: list[dict[str, Any]],
     *,
     discipline_penalty: float = 0.0,
-    has_violations: bool = False,
+    has_high_violations: bool = False,
 ) -> Health:
     contracts_count = len(contract_rows)
     events_count = len(event_rows)
@@ -205,7 +214,7 @@ def _score_health(
 
     score_total -= float(discipline_penalty)
     score_total = max(0.0, min(100.0, score_total))
-    if has_violations and score_total >= 70.0:
+    if has_high_violations and score_total >= 70.0:
         score_total = 69.0
     score_total = round(score_total, 2)
 
@@ -229,12 +238,12 @@ def compute_health() -> Health:
         contract_rows,
         event_rows,
         discipline_penalty=float(discipline["penalty"]),
-        has_violations=bool(discipline["violations"]),
+        has_high_violations=_has_high_violations(list(discipline["violations"])),
     )
 
 
 def _status_for(score_total: float, violations: list[str]) -> str:
-    if violations:
+    if _has_high_violations(list(violations)):
         return "red"
     if score_total >= 85.0:
         return "green"
@@ -277,22 +286,23 @@ def compute_health_for_system(
     contracts_glob: str,
     events_glob: str,
     *,
+    registry_path: str | Path | None = None,
     as_of: datetime | None = None,
 ) -> dict[str, Any]:
-    contract_rows = _read_contracts_from_glob(contracts_glob)
+    contract_rows = _read_contracts_from_glob(contracts_glob, registry_path=registry_path)
     for row in contract_rows:
         if not row.get("system_id"):
             row["system_id"] = system_id
 
-    event_rows = _read_events_from_glob(events_glob, system_id, as_of=as_of)
-    _ = _count_events_lines_from_glob(events_glob)
+    event_rows = _read_events_from_glob(events_glob, system_id, registry_path=registry_path, as_of=as_of)
+    _ = _count_events_lines_from_glob(events_glob, registry_path=registry_path)
 
     discipline = _compute_discipline(contract_rows, event_rows, as_of=as_of)
     health_model = _score_health(
         contract_rows,
         event_rows,
         discipline_penalty=float(discipline["penalty"]),
-        has_violations=bool(discipline["violations"]),
+        has_high_violations=_has_high_violations(list(discipline["violations"])),
     )
     return _canonical_from_health(health_model, discipline)
 
@@ -305,7 +315,7 @@ def compute_and_write_health() -> tuple[dict[str, Any], dict[str, str]]:
         contract_rows,
         event_rows,
         discipline_penalty=float(discipline["penalty"]),
-        has_violations=bool(discipline["violations"]),
+        has_high_violations=_has_high_violations(list(discipline["violations"])),
     )
 
     snapshot_dir = Path("data/snapshots")

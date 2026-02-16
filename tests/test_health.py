@@ -375,3 +375,39 @@ def test_status_uses_payload_violations_list(tmp_path: Path, monkeypatch) -> Non
 
     expected = _status_for(float(payload["score_total"]), list(payload["violations"]))
     assert payload["status"] == expected
+
+
+def test_events_recent_only_can_be_non_red_with_high_base_score(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    bootstrap_repo()
+    _write_contract(
+        tmp_path,
+        "sys-events-only",
+        primitives_used=["P0", "P1", "P7"],
+        invariants=["INV-001", "INV-002", "INV-003"],
+    )
+
+    # Write enough old events so score remains >=70 after penalty, proving no auto-clamp on EVENTS_RECENT.
+    logs_dir = tmp_path / "data" / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    old_ts = (datetime.now(UTC) - timedelta(days=30)).isoformat().replace("+00:00", "Z")
+    rows = []
+    for i in range(8):
+        rows.append(
+            json.dumps(
+                {
+                    "event_id": f"sys-events-only-evt-{i:06d}",
+                    "system_id": "sys-events-only",
+                    "event_type": "status_update",
+                    "ts": old_ts,
+                },
+                sort_keys=True,
+            )
+        )
+    (logs_dir / "events.jsonl").write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    latest, _ = compute_and_write_health()
+
+    assert "EVENTS_RECENT" in latest["violations"]
+    assert latest["status"] in {"yellow", "green"}
+    assert latest["score_total"] >= 70.0
