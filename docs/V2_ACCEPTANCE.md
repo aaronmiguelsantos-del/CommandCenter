@@ -9,6 +9,19 @@ It must not break v1.x deterministic guarantees.
 
 ---
 
+# Status: Completed
+
+- Section 1 Registry Extensions: Completed
+- Section 2 Dependency Graph Model: Completed
+- Section 3 Impact Model: Completed
+- Section 4 Reporting Contract (v2): Completed
+- Section 5 Enforcement Policy (Tier-Aware Strict): Completed
+- Section 6 Hints Upgrade: Completed
+- Section 7 Backward Compatibility: Completed
+- Section 8 Validation Command Upgrade: Completed
+
+---
+
 # 0) Definition of Done (v2.0)
 
 v2.0.0 is cut when:

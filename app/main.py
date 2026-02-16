@@ -6,8 +6,9 @@ from pathlib import Path
 from typing import Sequence
 
 from core.bootstrap import bootstrap_repo
+from core.graph import build_graph, graph_as_json, render_graph_text
 from core.health import compute_and_write_health, compute_health_for_system
-from core.registry import load_registry, upsert_system
+from core.registry import load_registry, load_registry_systems, registry_path, upsert_system
 from core.reporting import compute_report, format_text, load_history
 from core.storage import append_event, create_contract
 from core.validate import validate_repo
@@ -26,7 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
     health_cmd.add_argument("--all", action="store_true", help="Compute per-system health from registry globs.")
     health_cmd.add_argument("--registry", default=None, help="Optional path to systems registry JSON.")
     health_cmd.add_argument("--json", action="store_true", help="Print --all output as JSON.")
-    health_cmd.add_argument("--strict", action="store_true", help="Exit non-zero if any non-sample system is red (with --all).")
+    health_cmd.add_argument("--strict", action="store_true", help="Exit non-zero if policy-blocking systems are red (with --all).")
+    health_cmd.add_argument("--include-staging", action="store_true", help="Strict includes staging tier.")
+    health_cmd.add_argument("--include-dev", action="store_true", help="Strict includes dev tier (implies staging).")
 
     contract = subparsers.add_parser("contract", help="Contract commands.")
     contract_sub = contract.add_subparsers(dest="contract_command", required=True)
@@ -52,8 +55,14 @@ def build_parser() -> argparse.ArgumentParser:
     report_health.add_argument("--tail", type=int, default=2000, help="Max history lines read from JSONL.")
     report_health.add_argument("--json", action="store_true", help="Print report as JSON.")
     report_health.add_argument("--strict", action="store_true", help="Exit non-zero if strict readiness fails now.")
+    report_health.add_argument("--include-staging", action="store_true", help="Strict policy includes staging tier.")
+    report_health.add_argument("--include-dev", action="store_true", help="Strict policy includes dev tier (implies staging).")
     report_health.add_argument("--no-hints", action="store_true", help="Disable action hints in report output.")
     report_health.add_argument("--registry", default=None, help="Optional path to systems registry JSON.")
+
+    report_graph = report_sub.add_parser("graph", help="Print dependency graph (text or JSON).")
+    report_graph.add_argument("--json", action="store_true", help="Emit JSON.")
+    report_graph.add_argument("--registry-path", default=None, help="Override registry path.")
 
     subparsers.add_parser("validate", help="Validate registry, schema, globs, and event timestamps.")
 
@@ -97,9 +106,28 @@ def _health_rows(registry_path: str | None) -> list[tuple[str, str, float, str, 
     return rows
 
 
-def _has_non_sample_red(registry_path: str | None) -> bool:
-    for _system_id, status, _score_total, _violations, is_sample in _health_rows(registry_path):
-        if not is_sample and status == "red":
+def _blocked_tiers(include_staging: bool, include_dev: bool) -> set[str]:
+    tiers = {"prod"}
+    if include_staging or include_dev:
+        tiers.add("staging")
+    if include_dev:
+        tiers.add("dev")
+    return tiers
+
+
+def _has_policy_red(registry_path: str | None, blocked_tiers: set[str]) -> bool:
+    for spec in load_registry(registry_path):
+        if spec.is_sample:
+            continue
+        if spec.tier not in blocked_tiers:
+            continue
+
+        payload = compute_health_for_system(
+            system_id=spec.system_id,
+            contracts_glob=spec.contracts_glob,
+            events_glob=spec.events_glob,
+        )
+        if payload.get("status") == "red":
             return True
     return False
 
@@ -129,13 +157,26 @@ def _emit_health_all(registry_path: str | None, as_json: bool) -> None:
         print(f"{system_id} | {status} | {score_total:.2f} | {violations} | {sample}")
 
 
-def _emit_report_health(days: int, tail: int, as_json: bool, strict: bool, registry_path: str | None, include_hints: bool) -> int:
+def _emit_report_health(days: int, tail: int, as_json: bool, strict: bool, registry_path: str | None, include_hints: bool, include_staging: bool, include_dev: bool) -> int:
     history_path = Path("data/snapshots/health_history.jsonl")
     if not history_path.exists() or not load_history(tail=1):
         print("No health history found at data/snapshots/health_history.jsonl")
         return 0
 
-    report = compute_report(days=days, tail=tail, strict=strict, registry_path=registry_path, include_hints=include_hints)
+    blocked = sorted(_blocked_tiers(include_staging, include_dev))
+    strict_policy = {
+        "strict_blocked_tiers": blocked,
+        "include_staging": bool(include_staging),
+        "include_dev": bool(include_dev),
+    }
+    report = compute_report(
+        days=days,
+        tail=tail,
+        strict=strict,
+        registry_path=registry_path,
+        include_hints=include_hints,
+        strict_policy=strict_policy,
+    )
     if as_json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
@@ -143,6 +184,21 @@ def _emit_report_health(days: int, tail: int, as_json: bool, strict: bool, regis
 
     if strict and not report["summary"]["strict_ready_now"]:
         return 2
+    return 0
+
+
+def _emit_report_graph(as_json: bool, registry_path_arg: str | None) -> int:
+    reg_path = registry_path(registry_path_arg)
+    registry_obj = json.loads(reg_path.read_text(encoding="utf-8"))
+    systems = load_registry_systems(registry_obj)
+
+    g = build_graph(systems)
+
+    if as_json:
+        print(json.dumps(graph_as_json(g), indent=2, sort_keys=True))
+    else:
+        print(render_graph_text(g))
+
     return 0
 
 
@@ -180,7 +236,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "health":
         if args.all:
             _emit_health_all(args.registry, args.json)
-            if args.strict and _has_non_sample_red(args.registry):
+            blocked = _blocked_tiers(args.include_staging, args.include_dev)
+            if args.strict and _has_policy_red(args.registry, blocked):
                 return 2
         else:
             _emit_health_snapshot()
@@ -215,7 +272,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "report":
         bootstrap_repo()
         if args.report_command == "health":
-            return _emit_report_health(args.days, args.tail, args.json, args.strict, args.registry, include_hints=not args.no_hints)
+            return _emit_report_health(
+                args.days,
+                args.tail,
+                args.json,
+                args.strict,
+                args.registry,
+                include_hints=not args.no_hints,
+                include_staging=args.include_staging,
+                include_dev=args.include_dev,
+            )
+        if args.report_command == "graph":
+            return _emit_report_graph(args.json, args.registry_path)
         parser.error("Unknown report command.")
 
 

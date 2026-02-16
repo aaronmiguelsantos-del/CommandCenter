@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from core.health import compute_health_for_system
-from core.registry import load_registry
+from core.graph import GraphView, build_graph
+from core.impact import Impacted, compute_impact, render_impact_line
+from core.registry import load_registry, load_registry_systems, registry_path as registry_file_path
 from core.storage import list_event_rows
 
 
@@ -384,6 +386,51 @@ def _build_hints(current_systems: list[dict[str, Any]], snapshot_status: str, in
     ]
 
 
+def _select_impact_sources(
+    current_systems: list[dict[str, Any]],
+    drift_sources: list[str] | None,
+) -> list[str]:
+    """
+    Impact sources are advisory-only and must be deterministic.
+
+    Rules (Step 5):
+      - status sources: any NON-SAMPLE system that is red or yellow
+      - drift sources: any system_ids from drift hint contributors (already non-sample)
+    """
+    src: set[str] = set()
+
+    for row in current_systems:
+        sid = str(row.get("system_id", "")).strip()
+        if not sid:
+            continue
+        if bool(row.get("is_sample", False)):
+            continue
+        if row.get("status") in ("red", "yellow"):
+            src.add(sid)
+
+    if drift_sources:
+        for sid in drift_sources:
+            s = str(sid).strip()
+            if s:
+                src.add(s)
+
+    return sorted(src)
+
+
+def _impact_suffix(g: GraphView, sources: list[str]) -> str:
+    if not sources:
+        return ""
+    _, impacted = compute_impact(g, sources)
+    if not impacted:
+        return ""
+    parts: list[str] = []
+    for it in impacted[:3]:
+        hop = "hop" if it.distance == 1 else "hops"
+        parts.append(f"{it.system_id} ({it.distance} {hop})")
+    more = f", +{len(impacted) - 3} more" if len(impacted) > 3 else ""
+    return " Impacted: " + ", ".join(parts) + more
+
+
 def compute_report(
     days: int = 30,
     tail: int = 2000,
@@ -391,6 +438,7 @@ def compute_report(
     registry_path: str | None = None,
     history_path: str | Path | None = None,
     include_hints: bool = True,
+    strict_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     loaded = load_history(tail=tail, path=history_path)
     now = datetime.now(UTC)
@@ -406,14 +454,25 @@ def compute_report(
 
     latest = loaded[-1] if loaded else {}
     current_systems = _current_system_health(registry_path)
+    reg_path = registry_file_path(registry_path)
+    registry_obj: Any = {"systems": []}
+    if reg_path.exists():
+        registry_obj = json.loads(reg_path.read_text(encoding="utf-8"))
+
+    systems = load_registry_systems(registry_obj)
+    g = build_graph(systems)
+
     registry_rows = [
         {
-            "system_id": spec.system_id,
-            "contracts_glob": spec.contracts_glob,
-            "events_glob": spec.events_glob,
-            "is_sample": spec.is_sample,
+            "system_id": s.system_id,
+            "contracts_glob": s.contracts_glob,
+            "events_glob": s.events_glob,
+            "is_sample": s.is_sample,
+            "tier": s.tier,
+            "depends_on": list(s.depends_on),
+            "owners": list(s.owners),
         }
-        for spec in load_registry(registry_path)
+        for s in systems
     ]
     now_non_sample = _aggregate_non_sample(current_systems)
     strict_ready_now = bool(now_non_sample["strict_ready_now"])
@@ -470,22 +529,33 @@ def compute_report(
     snapshot_status = str(latest.get("status", "unknown"))
     hints = _build_hints(current_systems, snapshot_status=snapshot_status, include_hints=include_hints)
     top_drift_line = None
+    drift_sources: list[str] = []
     if include_hints:
+        for hint in hints:
+            if str(hint.get("severity", "")).lower() == "high" and hint.get("systems"):
+                hint["why"] = str(hint.get("why", "")) + _impact_suffix(g, list(hint.get("systems", [])))
+
         now_utc = _now_utc()
         contributors = _drift_contributors(registry_rows, now_utc=now_utc)
         drift_hint = build_drift_hint(
-            points=trend.get("points", []),
+            points=trend_points,
             rolling_avg=trend.get("rolling_avg"),
             now_utc=now_utc,
             contributors=contributors,
         )
         if drift_hint is not None:
+            systems_for_hint = list(drift_hint.get("systems", []))
+            drift_hint["why"] = str(drift_hint.get("why", "")) + _impact_suffix(g, systems_for_hint)
             hints.append(drift_hint)
+            drift_sources = systems_for_hint
             if contributors:
                 top_drift_line = " | ".join(f"{sid} -{drop}" for sid, drop in contributors)
 
+    sources = _select_impact_sources(current_systems=current_systems, drift_sources=drift_sources)
+    src, impacted = compute_impact(g, sources)
+
     report = {
-        "report_version": "1.0",
+        "report_version": "2.0",
         "summary": {
             "snapshots_analyzed": len(analyzed),
             "date_range": {
@@ -509,7 +579,28 @@ def compute_report(
             "recency": _system_recency(registry_path),
             "status": current_systems,
         },
+        "impact": {
+            "sources": src,
+            "impacted": [
+                {"system_id": it.system_id, "distance": it.distance, "tier": it.tier}
+                for it in impacted
+            ],
+        },
         "hints": hints,
+    }
+
+    policy = strict_policy or {
+        "strict_blocked_tiers": ["prod"],
+        "include_staging": False,
+        "include_dev": False,
+    }
+    tiers = policy.get("strict_blocked_tiers", ["prod"])
+    tiers_sorted = sorted([str(t) for t in tiers if str(t)])
+
+    report["policy"] = {
+        "strict_blocked_tiers": tiers_sorted,
+        "include_staging": bool(policy.get("include_staging", False)),
+        "include_dev": bool(policy.get("include_dev", False)),
     }
     return report
 
@@ -538,6 +629,31 @@ def format_text(report: dict[str, Any], days: int) -> str:
             f"global_includes_samples={summary.get('global_includes_samples', 'unknown')}"
         ),
     ]
+
+    tiers = report.get("policy", {}).get("strict_blocked_tiers", []) if isinstance(report, dict) else []
+    tiers_txt = "+".join([str(t) for t in tiers if str(t)]) if tiers else "prod"
+    lines.append(f"Strict policy: {tiers_txt}")
+
+    impact = report.get("impact", {})
+    impact_sources = [str(x) for x in impact.get("sources", []) if str(x)] if isinstance(impact, dict) else []
+    impacted_rows = impact.get("impacted", []) if isinstance(impact, dict) else []
+    impacted_objs: list[Impacted] = []
+    if isinstance(impacted_rows, list):
+        for row in impacted_rows:
+            if not isinstance(row, dict):
+                continue
+            sid = str(row.get("system_id", "")).strip()
+            if not sid:
+                continue
+            try:
+                distance = int(row.get("distance", 0))
+            except Exception:
+                distance = 0
+            tier = str(row.get("tier", "prod"))
+            impacted_objs.append(Impacted(system_id=sid, distance=distance, tier=tier))
+    impact_line = render_impact_line(impact_sources, impacted_objs)
+    if impact_line:
+        lines.append(impact_line)
 
     if hints:
         lines.extend(["", "ACTION HINTS:"])

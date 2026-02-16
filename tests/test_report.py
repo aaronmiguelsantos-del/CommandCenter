@@ -90,7 +90,7 @@ def test_compute_report_delta_frequency_and_strict_ready(tmp_path: Path, monkeyp
 
     report = compute_report(days=30, tail=2000, strict=True)
 
-    assert report["report_version"] == "1.0"
+    assert report["report_version"] == "2.0"
     assert report["summary"]["snapshots_analyzed"] == 3
     assert report["summary"]["strict_ready_now"] is True
     assert report["summary"]["now_non_sample"]["status"] == "green"
@@ -178,8 +178,8 @@ def test_report_health_json_command_outputs_sections(tmp_path: Path, monkeypatch
     assert app_main(["report", "health", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
 
-    assert set(payload.keys()) == {"report_version", "summary", "trend", "violations", "systems", "hints"}
-    assert payload["report_version"] == "1.0"
+    assert set(payload.keys()) == {"report_version", "summary", "trend", "violations", "systems", "impact", "hints", "policy"}
+    assert payload["report_version"] == "2.0"
     assert "now_non_sample" in payload["summary"]
     assert "hints_count" in payload["summary"]
     assert isinstance(payload["systems"]["status"], list)
@@ -400,4 +400,86 @@ def test_report_json_includes_version() -> None:
     report = compute_report()
 
     assert "report_version" in report
-    assert report["report_version"] == "1.0"
+    assert report["report_version"] == "2.0"
+
+
+def test_report_json_includes_impact_block() -> None:
+    report = compute_report()
+
+    assert "impact" in report
+    assert "sources" in report["impact"]
+    assert "impacted" in report["impact"]
+    assert isinstance(report["impact"]["sources"], list)
+    assert isinstance(report["impact"]["impacted"], list)
+
+
+def test_select_impact_sources_excludes_samples_and_includes_drift() -> None:
+    from core.reporting import _select_impact_sources
+
+    current = [
+        {"system_id": "demo-sys", "status": "red", "is_sample": True},
+        {"system_id": "ops-core", "status": "yellow", "is_sample": False},
+        {"system_id": "atlas-core", "status": "green", "is_sample": False},
+    ]
+    sources = _select_impact_sources(current_systems=current, drift_sources=["atlas-core"])
+
+    assert sources == ["atlas-core", "ops-core"]
+
+
+def test_drift_hint_includes_impacted_suffix_when_graph_has_dependents(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    bootstrap_repo()
+
+    upsert_system("ops-core", "data/contracts/ops-core-*.json", "data/logs/ops-core-events.jsonl")
+    upsert_system("atlas-core", "data/contracts/atlas-core-*.json", "data/logs/atlas-core-events.jsonl")
+
+    # Add dependency: atlas-core depends on ops-core
+    reg_path = tmp_path / "data" / "registry" / "systems.json"
+    payload = json.loads(reg_path.read_text(encoding="utf-8"))
+    rows = payload["systems"] if isinstance(payload, dict) else payload
+    for row in rows:
+        if row.get("system_id") == "atlas-core":
+            row["depends_on"] = ["ops-core"]
+    if isinstance(payload, dict):
+        payload["systems"] = rows
+    reg_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    # Use fixed now and history to force aggregate drift.
+    now = datetime(2026, 2, 14, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(reporting, "_now_utc", lambda: now)
+    _write_history(
+        tmp_path,
+        [
+            {"ts": "2026-02-13T12:00:00Z", "status": "yellow", "score_total": 95.0, "violations": []},
+            {"ts": "2026-02-14T12:00:00Z", "status": "yellow", "score_total": 70.0, "violations": []},
+        ],
+    )
+
+    # Force deterministic contributor attribution to ops-core.
+    def fake_compute_health_for_system(system_id: str, contracts_glob: str, events_glob: str, *, as_of=None):
+        if as_of is None:
+            return {"status": "green", "score_total": 90.0, "violations": []}
+        if system_id == "ops-core":
+            return {"score_total": 95.0 if as_of < now else 70.0, "status": "green", "violations": []}
+        return {"score_total": 70.0, "status": "green", "violations": []}
+
+    monkeypatch.setattr(reporting, "compute_health_for_system", fake_compute_health_for_system)
+
+    report = compute_report(days=30, tail=2000, strict=False)
+
+    drift_hints = [h for h in report.get("hints", []) if "drift" in str(h.get("title", "")).lower()]
+    assert drift_hints, "expected drift hint"
+    why = str(drift_hints[0].get("why", ""))
+    assert "Impacted:" in why
+
+
+def test_report_json_includes_policy_block() -> None:
+    report = compute_report()
+
+    assert report["report_version"] == "2.0"
+    assert "policy" in report
+    p = report["policy"]
+    assert set(p.keys()) == {"strict_blocked_tiers", "include_staging", "include_dev"}
+    assert isinstance(p["strict_blocked_tiers"], list)
+    assert isinstance(p["include_staging"], bool)
+    assert isinstance(p["include_dev"], bool)

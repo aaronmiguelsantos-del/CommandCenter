@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from core.health import _parse_iso_utc
-from core.registry import registry_path
+from core.registry import VALID_TIERS, registry_path
 
 
 def _coerce_registry_rows(payload: object) -> list[dict[str, Any]]:
@@ -24,6 +24,39 @@ def _json_load(path: Path) -> Any:
 
 def _err(code: str, detail: str) -> str:
     return f"{code}: {detail}"
+
+
+def _first_cycle(adjacency: dict[str, list[str]]) -> list[str] | None:
+    state: dict[str, int] = {}  # 0=unseen, 1=visiting, 2=done
+    stack: list[str] = []
+    index_by_node: dict[str, int] = {}
+
+    def dfs(node: str) -> list[str] | None:
+        state[node] = 1
+        index_by_node[node] = len(stack)
+        stack.append(node)
+
+        for nxt in adjacency.get(node, []):
+            st = state.get(nxt, 0)
+            if st == 0:
+                cycle = dfs(nxt)
+                if cycle is not None:
+                    return cycle
+            elif st == 1:
+                start = index_by_node[nxt]
+                return stack[start:] + [nxt]
+
+        stack.pop()
+        index_by_node.pop(node, None)
+        state[node] = 2
+        return None
+
+    for node in sorted(adjacency):
+        if state.get(node, 0) == 0:
+            cycle = dfs(node)
+            if cycle is not None:
+                return cycle
+    return None
 
 
 def validate_repo(path: str | Path | None = None) -> list[str]:
@@ -64,13 +97,44 @@ def validate_repo(path: str | Path | None = None) -> list[str]:
         if not events_glob:
             errors.append(_err("REGISTRY_SCHEMA_INVALID", f"{system_id} missing events_glob"))
 
+        tier = str(row.get("tier", "prod")).strip() or "prod"
+        if tier not in VALID_TIERS:
+            errors.append(_err("REGISTRY_TIER_INVALID", f"{system_id}: {tier}"))
+
+        depends_raw = row.get("depends_on", [])
+        depends_on: list[str] = []
+        if depends_raw is None:
+            depends_on = []
+        elif not isinstance(depends_raw, list):
+            errors.append(_err("REGISTRY_DEPENDENCY_INVALID", system_id))
+        else:
+            for dep in depends_raw:
+                if isinstance(dep, str) and dep.strip():
+                    depends_on.append(dep.strip())
+
         systems.append(
             {
                 "system_id": system_id,
                 "contracts_glob": contracts_glob,
                 "events_glob": events_glob,
+                "depends_on": depends_on,
             }
         )
+
+    known_ids = {s["system_id"] for s in systems}
+    for system in sorted(systems, key=lambda x: x["system_id"]):
+        sid = system["system_id"]
+        for dep in sorted(set(system["depends_on"])):
+            if dep not in known_ids:
+                errors.append(_err("REGISTRY_DEPENDENCY_MISSING", f"{sid}: {dep}"))
+
+    adjacency: dict[str, list[str]] = {}
+    for system in systems:
+        sid = system["system_id"]
+        adjacency[sid] = sorted({dep for dep in system["depends_on"] if dep in known_ids})
+    cycle = _first_cycle(adjacency)
+    if cycle is not None:
+        errors.append(_err("REGISTRY_CYCLE_DETECTED", " -> ".join(cycle)))
 
     schema_dir = Path("data/primitives/schemas")
     schema_files = sorted(schema_dir.glob("*.json")) if schema_dir.exists() else []
