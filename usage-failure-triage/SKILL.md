@@ -18,3 +18,11 @@ python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_u
 ```bash
 python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_usage_events.jsonl --output /absolute/path/to/data/usage_failure_triage.json
 ```
+3. Recent-window triage with markdown:
+```bash
+python3 scripts/triage_usage_failures.py --events /absolute/path/to/data/skill_usage_events.jsonl --since-days 7 --top 10 --markdown-output /absolute/path/to/data/usage_failure_triage.md --json
+```
+
+Schema enforcement:
+- defaults to `../skill-adoption-analytics/references/skill_usage_events.schema.json`
+- override with `--schema /absolute/path/to/skill_usage_events.schema.json`

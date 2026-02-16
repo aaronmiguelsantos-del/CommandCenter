@@ -18,3 +18,11 @@ python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo
 ```bash
 python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --output-dir /absolute/path/to/repo/data/roadmap
 ```
+3. Open or update deterministic daily PR:
+```bash
+python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --open-pr --base-branch main --branch-prefix codex/roadmap-daily --json
+```
+4. Dry-run PR actions:
+```bash
+python3 scripts/prepare_roadmap_pr.py --repo-root /absolute/path/to/repo --open-pr --dry-run --json
+```

@@ -23,6 +23,7 @@ BLOCKED_NAMES = {".DS_Store"}
 BLOCKED_SUFFIXES = {".pyc"}
 BLOCKED_DIRS = {"__pycache__"}
 ERROR_CLASSES = {"input", "validation", "regression", "contract", "git", "runtime"}
+DEFAULT_USAGE_SCHEMA_REL = Path("skill-adoption-analytics") / "references" / "skill_usage_events.schema.json"
 
 
 def _run(cmd: List[str], cwd: Path) -> Tuple[int, str, str]:
@@ -133,8 +134,62 @@ def _build_index(skills: List[Path]) -> Dict[str, Any]:
     }
 
 
+def _load_json_schema(path: Path) -> Dict[str, Any]:
+    try:
+        obj = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as err:
+        raise PublishError(f"invalid usage schema file {path}: {err}") from err
+    if not isinstance(obj, dict):
+        raise PublishError(f"usage schema must be object: {path}")
+    return obj
+
+
+def _validate_usage_event_row(schema: Dict[str, Any], row: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    required = schema.get("required", [])
+    props = schema.get("properties", {})
+    if not isinstance(required, list) or not isinstance(props, dict):
+        return ["invalid schema shape"]
+
+    type_map = {"integer": int, "number": (int, float), "array": list, "string": str, "object": dict}
+    for key in required:
+        if key not in row:
+            errors.append(f"missing required key: {key}")
+    for key, rule in props.items():
+        if key not in row or not isinstance(rule, dict):
+            continue
+        expected = rule.get("type")
+        py_t = type_map.get(expected)
+        if py_t and not isinstance(row[key], py_t):
+            errors.append(f"invalid type for {key}: expected {expected}")
+            continue
+        enum = rule.get("enum")
+        if isinstance(enum, list) and row[key] not in enum:
+            errors.append(f"invalid value for {key}: {row[key]}")
+    return errors
+
+
+def _validate_usage_events_file(path: Path, schema: Dict[str, Any]) -> None:
+    if not path.exists():
+        return
+    for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        raw = line.strip()
+        if not raw:
+            continue
+        try:
+            obj = json.loads(raw)
+        except Exception as err:
+            raise PublishError(f"invalid usage events json line {i}: {err}") from err
+        if not isinstance(obj, dict):
+            raise PublishError(f"invalid usage event row at line {i}: expected object")
+        row_errors = _validate_usage_event_row(schema, obj)
+        if row_errors:
+            raise PublishError(f"usage event schema validation failed at line {i}: {'; '.join(row_errors)}")
+
+
 def _append_usage_events(
     source_root: Path,
+    schema: Dict[str, Any],
     skill_names: List[str],
     status: str,
     duration_ms: int,
@@ -169,6 +224,9 @@ def _append_usage_events(
                 row["reason_detail"] = reason_detail
             if error_class:
                 row["error_class"] = error_class
+            row_errors = _validate_usage_event_row(schema, row)
+            if row_errors:
+                raise PublishError("usage event schema validation failed: " + "; ".join(row_errors))
             f.write(
                 json.dumps(row, sort_keys=True)
                 + "\n"
@@ -179,6 +237,7 @@ def _append_usage_events(
 
 def _append_failure_usage_events_best_effort(
     source_root: Path,
+    schema: Dict[str, Any],
     skill_names: List[str],
     duration_ms: int,
     reason_code: str,
@@ -190,6 +249,7 @@ def _append_failure_usage_events_best_effort(
     try:
         _append_usage_events(
             source_root=source_root,
+            schema=schema,
             skill_names=skill_names,
             status="failure",
             duration_ms=duration_ms,
@@ -472,6 +532,7 @@ def _git_push(repo_root: Path) -> str:
 def publish(
     source_root: Path,
     repo_root: Path,
+    usage_schema_path: Path,
     only_skills: List[str],
     commit: bool,
     push: bool,
@@ -491,6 +552,8 @@ def publish(
         raise PublishError(f"repo root does not exist: {repo_root}")
     if not (repo_root / ".git").exists():
         raise PublishError(f"repo root is not a git repo: {repo_root}")
+
+    usage_schema = _load_json_schema(usage_schema_path)
 
     all_skill_dirs = _discover_skills(source_root)
     if not all_skill_dirs:
@@ -551,13 +614,17 @@ def publish(
         releases_dst.parent.mkdir(parents=True, exist_ok=True)
         releases_dst.write_text(releases_src.read_text(encoding="utf-8"), encoding="utf-8")
 
+    existing_usage_events = source_root / "data" / "skill_usage_events.jsonl"
+    _validate_usage_events_file(existing_usage_events, usage_schema)
     usage_events_path, usage_events_count = _append_usage_events(
         source_root=source_root,
+        schema=usage_schema,
         skill_names=[s.name for s in skill_dirs],
         status="success",
         duration_ms=round((time.monotonic() - started) * 1000),
         context="publish",
     )
+    _validate_usage_events_file(Path(usage_events_path), usage_schema)
     usage_src = Path(usage_events_path)
     usage_dst = repo_root / "data" / "skill_usage_events.jsonl"
     usage_dst.parent.mkdir(parents=True, exist_ok=True)
@@ -608,6 +675,11 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Publish skills into a git repo clone")
     parser.add_argument("--source-root", required=True, help="Path containing skill folders")
     parser.add_argument("--repo-root", required=True, help="Git repo clone path to publish into")
+    parser.add_argument(
+        "--usage-schema",
+        default="",
+        help="Optional usage events schema path (defaults to skill-adoption-analytics/references/skill_usage_events.schema.json)",
+    )
     parser.add_argument("--only", default="", help="Optional comma-separated skill names to publish")
     parser.add_argument("--commit", action="store_true", help="Commit changes")
     parser.add_argument("--push", action="store_true", help="Push changes (requires --commit)")
@@ -631,6 +703,10 @@ def main(argv: List[str]) -> int:
     args = parse_args(argv)
     source_root = Path(args.source_root).expanduser().resolve()
     repo_root = Path(args.repo_root).expanduser().resolve()
+    if args.usage_schema:
+        usage_schema_path = Path(args.usage_schema).expanduser().resolve()
+    else:
+        usage_schema_path = (source_root / DEFAULT_USAGE_SCHEMA_REL).resolve()
     only = _parse_only_csv(str(args.only))
     started = time.monotonic()
 
@@ -638,6 +714,7 @@ def main(argv: List[str]) -> int:
         report = publish(
             source_root=source_root,
             repo_root=repo_root,
+            usage_schema_path=usage_schema_path,
             only_skills=only,
             commit=bool(args.commit),
             push=bool(args.push),
@@ -652,14 +729,21 @@ def main(argv: List[str]) -> int:
         )
     except PublishError as err:
         reason_code = _reason_code_from_error(err)
-        _append_failure_usage_events_best_effort(
-            source_root=source_root,
-            skill_names=only,
-            duration_ms=round((time.monotonic() - started) * 1000),
-            reason_code=reason_code,
-            reason_detail=_reason_detail_from_error(err),
-            error_class=_error_class_from_reason_code(reason_code),
-        )
+        usage_schema: Dict[str, Any] | None = None
+        try:
+            usage_schema = _load_json_schema(usage_schema_path)
+        except Exception:
+            usage_schema = None
+        if usage_schema is not None:
+            _append_failure_usage_events_best_effort(
+                source_root=source_root,
+                schema=usage_schema,
+                skill_names=only,
+                duration_ms=round((time.monotonic() - started) * 1000),
+                reason_code=reason_code,
+                reason_detail=_reason_detail_from_error(err),
+                error_class=_error_class_from_reason_code(reason_code),
+            )
         print(f"error: {err}", file=sys.stderr)
         return 1
 

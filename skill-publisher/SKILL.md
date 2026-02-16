@@ -28,6 +28,10 @@ Target only changed skills:
 ```bash
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --only skill-a,skill-b
 ```
+Custom usage schema:
+```bash
+python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --usage-schema /absolute/path/to/skill_usage_events.schema.json
+```
 2. Commit and push:
 ```bash
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --commit --push
@@ -38,7 +42,7 @@ Default integrated pipeline on each run:
 - run regression precheck (`skill-regression-runner`) in strict mode, scoped by `--only` when provided
 - run rollup contract precheck (`skill-adoption-analytics/scripts/check_rollup_contract.py`)
 - publish sync + index generation
-- append usage events to `data/skill_usage_events.jsonl` for targeted skills
+- enforce `skill_usage_events.schema.json` and append valid usage events to `data/skill_usage_events.jsonl` for targeted skills
 - append failure usage events with deterministic `reason_code` on publish errors
 
 ## What It Enforces

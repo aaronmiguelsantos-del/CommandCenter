@@ -57,3 +57,4 @@ Each JSONL line:
 
 - `references/adoption_report.schema.json` validates analytics report output.
 - `references/roadmap_rollup.schema.json` validates daily roadmap rollup output.
+- `references/skill_usage_events.schema.json` validates usage event rows consumed by publisher + triage paths.
