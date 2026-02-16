@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Skill Publisher
+  short_description: Validate and publish local skills to a git repo with index generation and optional push.
+  default_prompt: Publish skills from this workspace to the repo clone with validation, deterministic index generation, and push automation.
