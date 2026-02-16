@@ -29,6 +29,11 @@ python3 scripts/analyze_skill_adoption.py --events /absolute/path/to/data/skill_
 python3 scripts/analyze_skill_adoption.py --events /absolute/path/to/data/skill_usage_events.jsonl --output /absolute/path/to/data/skill_adoption_report.json
 ```
 
+3. Generate daily roadmap rollup:
+```bash
+python3 scripts/generate_daily_rollup.py --releases /absolute/path/to/data/skill_releases.jsonl --events /absolute/path/to/data/skill_usage_events.jsonl --output /absolute/path/to/data/skill_roadmap_daily.json --json
+```
+
 ## Input Event Format
 
 Each JSONL line:
@@ -39,3 +44,7 @@ Each JSONL line:
 `status` values:
 - `success`
 - `failure`
+
+## Schemas
+
+- `references/adoption_report.schema.json` validates analytics report output.

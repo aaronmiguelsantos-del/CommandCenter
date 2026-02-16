@@ -51,3 +51,6 @@ Each skill can define `tests/regression_suite.json`:
 ```
 
 Snapshots are stored in `tests/golden/<case-id>.json`.
+
+Schema validation:
+- `references/regression_snapshot.schema.json` is applied to each snapshot payload.

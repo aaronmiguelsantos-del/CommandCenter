@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "type": "object",
+  "required": [
+    "rc",
+    "stdout_sha256",
+    "stderr_sha256",
+    "stdout_head",
+    "stderr_head"
+  ],
+  "properties": {
+    "rc": {
+      "type": "integer"
+    },
+    "stdout_sha256": {
+      "type": "string"
+    },
+    "stderr_sha256": {
+      "type": "string"
+    },
+    "stdout_head": {
+      "type": "string"
+    },
+    "stderr_head": {
+      "type": "string"
+    }
+  }
+}

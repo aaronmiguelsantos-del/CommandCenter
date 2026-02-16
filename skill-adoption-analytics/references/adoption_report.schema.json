@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "type": "object",
+  "required": [
+    "schema_version",
+    "events_total",
+    "events_ignored",
+    "skills",
+    "improvement_priority"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer"
+    },
+    "events_total": {
+      "type": "integer"
+    },
+    "events_ignored": {
+      "type": "integer"
+    },
+    "skills": {
+      "type": "array"
+    },
+    "improvement_priority": {
+      "type": "array"
+    }
+  }
+}

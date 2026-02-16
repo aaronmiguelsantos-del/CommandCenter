@@ -29,6 +29,11 @@ python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone --commit --push
 ```
 
+Default integrated pipeline on each run:
+- auto-version-bump every discovered skill (`patch` by default)
+- run regression precheck (`skill-regression-runner`) in strict mode
+- publish sync + index generation
+
 ## What It Enforces
 
 - Required files:
@@ -47,3 +52,4 @@ python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-
 
 If push fails, verify network and git remote permissions.
 If validation fails, remove blocked artifacts and retry.
+If regressions fail, fix failing snapshots/tests or run with `--skip-regressions` only when intentionally bypassing guardrails.

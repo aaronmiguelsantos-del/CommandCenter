@@ -57,7 +57,43 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _case_result(skill_dir: Path, case: Dict[str, Any], update_snapshots: bool) -> Dict[str, Any]:
+def _load_schema(schema_path: Path) -> Dict[str, Any]:
+    try:
+        obj = json.loads(schema_path.read_text(encoding="utf-8"))
+    except Exception as err:
+        raise RegressionError(f"invalid schema file {schema_path}: {err}")
+    if not isinstance(obj, dict):
+        raise RegressionError(f"schema must be object: {schema_path}")
+    return obj
+
+
+def _validate_snapshot_payload(payload: Dict[str, Any], schema: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    required = schema.get("required", [])
+    properties = schema.get("properties", {})
+    if not isinstance(required, list) or not isinstance(properties, dict):
+        return ["invalid schema shape"]
+
+    for key in required:
+        if key not in payload:
+            errors.append(f"missing required key: {key}")
+    type_map = {"string": str, "integer": int}
+    for key, prop in properties.items():
+        if key not in payload or not isinstance(prop, dict):
+            continue
+        expected_type = prop.get("type")
+        py_type = type_map.get(expected_type)
+        if py_type and not isinstance(payload[key], py_type):
+            errors.append(f"invalid type for {key}: expected {expected_type}")
+    return errors
+
+
+def _case_result(
+    skill_dir: Path,
+    case: Dict[str, Any],
+    update_snapshots: bool,
+    schema: Dict[str, Any],
+) -> Dict[str, Any]:
     case_id = str(case.get("id", "")).strip()
     cmd = case.get("command", [])
     if not case_id:
@@ -87,6 +123,10 @@ def _case_result(skill_dir: Path, case: Dict[str, Any], update_snapshots: bool) 
         "stdout_head": "\n".join(stdout.splitlines()[:30]),
         "stderr_head": "\n".join(stderr.splitlines()[:30]),
     }
+    schema_errors = _validate_snapshot_payload(snapshot_payload, schema)
+    if schema_errors:
+        passed = False
+        reasons.extend([f"schema: {e}" for e in schema_errors])
 
     snap_path = _snapshot_path(skill_dir, case_id)
     drift = False
@@ -115,16 +155,17 @@ def _case_result(skill_dir: Path, case: Dict[str, Any], update_snapshots: bool) 
     }
 
 
-def run_regressions(source_root: Path, update_snapshots: bool) -> Dict[str, Any]:
+def run_regressions(source_root: Path, update_snapshots: bool, schema_path: Path) -> Dict[str, Any]:
     if not source_root.exists() or not source_root.is_dir():
         raise RegressionError(f"source root does not exist: {source_root}")
 
     skills = _discover_skill_dirs(source_root)
     report_skills: List[Dict[str, Any]] = []
 
+    schema = _load_schema(schema_path)
     for skill_dir in skills:
         cases = _load_suite(skill_dir)
-        case_results = [_case_result(skill_dir, case, update_snapshots) for case in cases]
+        case_results = [_case_result(skill_dir, case, update_snapshots, schema) for case in cases]
         passed = all(c["passed"] for c in case_results)
         report_skills.append(
             {
@@ -141,6 +182,7 @@ def run_regressions(source_root: Path, update_snapshots: bool) -> Dict[str, Any]
         "source_root": str(source_root),
         "update_snapshots": update_snapshots,
         "overall_passed": overall_passed,
+        "snapshot_schema": str(schema_path),
         "skills": report_skills,
     }
 
@@ -150,6 +192,11 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--source-root", required=True, help="Path containing skill folders")
     parser.add_argument("--update-snapshots", action="store_true", help="Write/refresh golden snapshots")
     parser.add_argument("--strict", action="store_true", help="Exit with code 2 on failures")
+    parser.add_argument(
+        "--snapshot-schema",
+        default="",
+        help="Optional snapshot schema path (defaults to references/regression_snapshot.schema.json)",
+    )
     parser.add_argument("--json", action="store_true", help="Print JSON output")
     return parser.parse_args(argv)
 
@@ -157,8 +204,12 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
 def main(argv: List[str]) -> int:
     args = parse_args(argv)
     source_root = Path(args.source_root).expanduser().resolve()
+    if args.snapshot_schema:
+        schema_path = Path(args.snapshot_schema).expanduser().resolve()
+    else:
+        schema_path = Path(__file__).resolve().parents[1] / "references" / "regression_snapshot.schema.json"
     try:
-        report = run_regressions(source_root, bool(args.update_snapshots))
+        report = run_regressions(source_root, bool(args.update_snapshots), schema_path=schema_path)
     except RegressionError as err:
         print(f"error: {err}", file=sys.stderr)
         return 1
