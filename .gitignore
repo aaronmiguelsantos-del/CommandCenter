@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtualenv
+.venv/
+venv/
+
+# OS junk
+.DS_Store
+
+# Runtime ledgers / local state (do not track)
+data/snapshots/report_snapshot_history.jsonl
+
+# Streamlit cache
+.streamlit/
+
+# Pytest cache
+.pytest_cache/

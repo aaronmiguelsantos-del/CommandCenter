@@ -127,6 +127,7 @@ def export_bundle(
     include_hints: bool,
     ledger_path: str,
     n_tail: int,
+    extra_files: dict[str, Any] | None = None,
 ) -> list[Path]:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -183,6 +184,12 @@ def export_bundle(
         {"ledger": ledger_path, "n": int(n_tail), "rows": read_jsonl_tail(ledger_path=ledger_path, n=max(1, int(n_tail)))},
     )
     written.append(tail_path)
+
+    if extra_files:
+        for name in sorted(extra_files.keys()):
+            target = out / str(name)
+            _write_json(target, extra_files[name])
+            written.append(target)
 
     meta_path = out / "bundle_meta.json"
     meta = {

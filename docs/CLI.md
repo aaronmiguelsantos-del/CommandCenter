@@ -17,6 +17,8 @@
 - `python -m app.main report snapshot diff --pretty --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest`
 - `python -m app.main report snapshot diff --json --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest --as-of 2026-02-16T12:00:00Z`
 - `python -m app.main operator gate`
+- `python -m app.main operator gate --json --hide-samples`
+- `python -m app.main operator gate --json --strict --enforce-sla`
 - `python -m app.main operator gate --registry /tmp/codex-kernel-failcase/data/registry/systems.json --enforce-sla`
 - `python -m app.main report health --no-hints`
 - `python -m app.main validate`
@@ -43,6 +45,8 @@ python -m app.main report snapshot run --every 1 --count 3 --json
 python -m app.main report snapshot diff --json --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest
 python -m app.main report snapshot diff --pretty --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest
 python -m app.main operator gate --json
+python -m app.main operator gate --json --hide-samples
+python -m app.main operator gate --json --strict --enforce-sla
 python -m app.main validate
 python -m app.main system add ops-core "Ops Core"
 python -m app.main log ops-core status_update
@@ -57,4 +61,5 @@ python -m app.main log ops-core status_update
 ## Operator Gate
 - Command: `python -m app.main operator gate`
 - Flow: strict evaluation, snapshot write, `prev -> latest` diff, optional export bundle
+- Optional policy flags: `--hide-samples`, `--strict`, `--include-staging`, `--include-dev`, `--enforce-sla`, `--as-of`
 - Optional: `--export-path <dir>` to write deterministic bundle artifacts

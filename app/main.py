@@ -165,6 +165,8 @@ def build_parser() -> argparse.ArgumentParser:
     operator_sub = operator_cmd.add_subparsers(dest="operator_command", required=True)
     operator_gate = operator_sub.add_parser("gate", help="Run strict gate + snapshot write + diff regression check.")
     operator_gate.add_argument("--registry", default=None, help="Optional path to systems registry JSON.")
+    operator_gate.add_argument("--hide-samples", action="store_true", help="Exclude sample systems from snapshot output.")
+    operator_gate.add_argument("--strict", action="store_true", help="Enable strict gate evaluation.")
     operator_gate.add_argument("--include-staging", action="store_true", help="Strict policy includes staging tier.")
     operator_gate.add_argument("--include-dev", action="store_true", help="Strict policy includes dev tier (implies staging).")
     operator_gate.add_argument("--enforce-sla", action="store_true", help="In strict mode, include SLA policy breaches.")
@@ -471,6 +473,7 @@ def _emit_report_snapshot(
         include_staging=include_staging,
         include_dev=include_dev,
         enforce_sla=enforce_sla,
+        hide_samples=False,
         write=write,
     )
     entry = payload["snapshot"] if isinstance(payload.get("snapshot"), dict) else {}
@@ -503,6 +506,7 @@ def _build_report_snapshot_payload(
     include_staging: bool,
     include_dev: bool,
     enforce_sla: bool,
+    hide_samples: bool = False,
     write: bool,
 ) -> dict[str, Any]:
     blocked_tiers = _blocked_tiers(include_staging, include_dev)
@@ -522,6 +526,14 @@ def _build_report_snapshot_payload(
         strict_policy=strict_policy,
         as_of=as_of,
     )
+    if hide_samples:
+        systems_block = report.get("systems")
+        if isinstance(systems_block, dict):
+            status_rows = systems_block.get("status")
+            if isinstance(status_rows, list):
+                systems_block["status"] = [
+                    row for row in status_rows if not (isinstance(row, dict) and bool(row.get("is_sample", False)))
+                ]
     report["strict_failure"] = None
     if strict:
         reasons = _collect_strict_failures(
@@ -571,6 +583,8 @@ def _diff_has_regressions(payload: dict[str, Any]) -> bool:
 def _emit_operator_gate(
     *,
     registry_path_arg: str | None,
+    hide_samples: bool,
+    strict: bool,
     include_staging: bool,
     include_dev: bool,
     enforce_sla: bool,
@@ -582,24 +596,38 @@ def _emit_operator_gate(
     n_tail: int,
     as_json: bool,
 ) -> int:
-    policy = build_policy(
-        include_staging=bool(include_staging),
-        include_dev=bool(include_dev),
-        enforce_sla=bool(enforce_sla),
-    )
-    strict_reasons = collect_strict_failures(registry_path_arg, policy, as_of=as_of)
-    strict_failed = len(strict_reasons) > 0
+    strict_reasons: list[dict] = []
+    strict_payload: dict[str, Any] | None = None
+    strict_failed = False
+    blocked_tiers = _blocked_tiers(include_staging, include_dev)
+    if strict:
+        policy = build_policy(
+            include_staging=bool(include_staging),
+            include_dev=bool(include_dev),
+            enforce_sla=bool(enforce_sla),
+        )
+        strict_reasons = collect_strict_failures(registry_path_arg, policy, as_of=as_of)
+        strict_failed = len(strict_reasons) > 0
+        if strict_failed:
+            strict_payload = _build_strict_failure_payload(
+                blocked_tiers=blocked_tiers,
+                include_staging=bool(include_staging),
+                include_dev=bool(include_dev),
+                enforce_sla=bool(enforce_sla),
+                reasons=strict_reasons,
+            )
 
     snapshot_payload = _build_report_snapshot_payload(
         days=int(days),
         tail=int(tail),
-        strict=True,
+        strict=bool(strict),
         registry_path_arg=registry_path_arg,
         as_of=as_of,
         include_hints=True,
         include_staging=bool(include_staging),
         include_dev=bool(include_dev),
         enforce_sla=bool(enforce_sla),
+        hide_samples=bool(hide_samples),
         write=True,
     )
 
@@ -608,6 +636,7 @@ def _emit_operator_gate(
         a="prev",
         b="latest",
         tail=max(2, int(tail)),
+        as_of=as_of,
     )
     regression_detected = False
     if diff_payload.get("error") not in {"BAD_REF", "NO_LEDGER_ROWS"}:
@@ -620,13 +649,23 @@ def _emit_operator_gate(
             days=int(days),
             tail=int(tail),
             registry_path=registry_path_arg,
-            strict=True,
+            strict=bool(strict),
             include_staging=bool(include_staging),
             include_dev=bool(include_dev),
             enforce_sla=bool(enforce_sla),
             include_hints=True,
             ledger_path=ledger_path,
             n_tail=int(n_tail),
+            extra_files={
+                "operator_gate.json": {
+                    "command": "operator_gate",
+                    "strict_failed": strict_failed,
+                    "regression_detected": regression_detected,
+                },
+                "snapshot_diff.json": diff_payload.get("diff") if isinstance(diff_payload.get("diff"), dict) else diff_payload,
+                "snapshot_latest.json": snapshot_payload,
+                **({"strict_failure.json": strict_payload} if strict_payload is not None else {}),
+            },
         )
         written_export = [str(p) for p in bundle]
 
@@ -638,11 +677,30 @@ def _emit_operator_gate(
     elif regression_detected:
         exit_code = 3
 
-    out = {
+    diff_obj = diff_payload.get("diff") if isinstance(diff_payload.get("diff"), dict) else {}
+    top_actions = diff_obj.get("top_actions", []) if isinstance(diff_obj, dict) else []
+    out: dict[str, Any] = {
+        "command": "operator_gate",
         "operator_version": "1.0",
+        "exit_code": exit_code,
         "strict_failed": strict_failed,
         "regression_detected": regression_detected,
-        "exit_code": exit_code,
+        "policy": {
+            "registry": registry_path_arg,
+            "hide_samples": bool(hide_samples),
+            "strict": bool(strict),
+            "include_staging": bool(include_staging),
+            "include_dev": bool(include_dev),
+            "enforce_sla": bool(enforce_sla),
+            "as_of": _iso_utc(as_of) if as_of is not None else None,
+        },
+        "artifacts": {
+            "snapshot_written": bool(snapshot_payload.get("written", False)),
+            "diff_includes_top_actions": isinstance(top_actions, list),
+            "export_path": export_path,
+            "export_written": written_export,
+        },
+        "top_actions": top_actions if isinstance(top_actions, list) else [],
         "strict_reasons": strict_reasons,
         "snapshot": {
             "written": bool(snapshot_payload.get("written", False)),
@@ -654,9 +712,10 @@ def _emit_operator_gate(
             ),
             "as_of": snapshot_payload.get("as_of"),
         },
-        "diff": diff_payload.get("diff") if "diff" in diff_payload else diff_payload,
-        "export_written": written_export,
+        "diff": diff_obj if isinstance(diff_obj, dict) else diff_payload,
     }
+    if strict_payload is not None:
+        out["strict_failure"] = strict_payload
     if as_json:
         print(json.dumps(out, indent=2, sort_keys=True))
     else:
@@ -1016,6 +1075,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 1
             return _emit_operator_gate(
                 registry_path_arg=args.registry,
+                hide_samples=bool(args.hide_samples),
+                strict=bool(args.strict),
                 include_staging=bool(args.include_staging),
                 include_dev=bool(args.include_dev),
                 enforce_sla=bool(args.enforce_sla),
