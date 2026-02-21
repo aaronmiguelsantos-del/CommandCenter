@@ -167,6 +167,7 @@ def export_bundle(
                 enforce_sla=bool(enforce_sla),
                 reasons=reasons,
             )
+    report["schema_version"] = "2.0"
     report_path = out / "report_health.json"
     _write_json(report_path, report)
     written.append(report_path)
@@ -177,8 +178,12 @@ def export_bundle(
         registry_obj = json.loads(reg_path.read_text(encoding="utf-8"))
     systems = load_registry_systems(registry_obj)
     g = build_graph(systems)
+    graph_payload = graph_as_json(g)
+    if isinstance(graph_payload, dict):
+        graph_payload = dict(graph_payload)
+        graph_payload["schema_version"] = "1.0"
     graph_path = out / "graph.json"
-    _write_json(graph_path, graph_as_json(g))
+    _write_json(graph_path, graph_payload)
     written.append(graph_path)
 
     stats_path = out / "snapshot_stats.json"
@@ -202,6 +207,7 @@ def export_bundle(
     artifacts = sorted([p.name for p in [*written, meta_path]])
     checksums = {name: _sha256_file(out / name) for name in sorted([p.name for p in written])}
     meta = {
+        "schema_version": "1.0",
         "bundle_version": "1.0",
         "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "inputs": {

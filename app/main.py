@@ -693,9 +693,24 @@ def _emit_operator_gate(
         out["strict_failure"] = strict_payload
 
     if export_path:
-        diff_artifact: dict[str, Any] = {"schema_version": "1.0"}
-        if isinstance(diff_obj, dict):
+        diff_artifact: dict[str, Any] = {
+            "schema_version": "1.0",
+            "a": {},
+            "b": {},
+            "system_status_changes": [],
+            "new_strict_reasons": [],
+            "risk_rank_delta_top": [],
+            "top_actions": [],
+        }
+        if isinstance(diff_obj, dict) and diff_obj:
             diff_artifact.update(diff_obj)
+        elif isinstance(diff_payload, dict):
+            if "error" in diff_payload:
+                diff_artifact["error"] = diff_payload.get("error")
+            if "hint" in diff_payload:
+                diff_artifact["hint"] = diff_payload.get("hint")
+            if "ledger" in diff_payload:
+                diff_artifact["ledger"] = diff_payload.get("ledger")
         else:
             diff_artifact["payload"] = diff_payload
 
