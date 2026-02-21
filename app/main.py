@@ -693,6 +693,15 @@ def _emit_operator_gate(
         out["strict_failure"] = strict_payload
 
     if export_path:
+        diff_artifact: dict[str, Any] = {"schema_version": "1.0"}
+        if isinstance(diff_obj, dict):
+            diff_artifact.update(diff_obj)
+        else:
+            diff_artifact["payload"] = diff_payload
+
+        latest_artifact: dict[str, Any] = {"schema_version": "1.0"}
+        latest_artifact.update(snapshot_payload)
+
         bundle = export_bundle(
             out_dir=export_path,
             days=int(days),
@@ -707,8 +716,8 @@ def _emit_operator_gate(
             n_tail=int(n_tail),
             extra_files={
                 "operator_gate.json": out,
-                "snapshot_diff.json": diff_obj if isinstance(diff_obj, dict) else diff_payload,
-                "snapshot_latest.json": snapshot_payload,
+                "snapshot_diff.json": diff_artifact,
+                "snapshot_latest.json": latest_artifact,
                 **({"strict_failure.json": strict_payload} if strict_payload is not None else {}),
             },
         )

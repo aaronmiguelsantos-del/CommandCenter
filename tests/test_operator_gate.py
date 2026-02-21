@@ -59,7 +59,14 @@ def test_operator_gate_export_writes_gate_artifacts(tmp_path: Path) -> None:
         assert k in policy
 
     diff_payload = json.loads((export_dir / "snapshot_diff.json").read_text(encoding="utf-8"))
+    assert diff_payload.get("schema_version") == "1.0"
     assert isinstance(diff_payload.get("top_actions"), list)
+    assert isinstance(diff_payload.get("system_status_changes"), list)
+
+    latest_payload = json.loads((export_dir / "snapshot_latest.json").read_text(encoding="utf-8"))
+    assert latest_payload.get("schema_version") == "1.0"
+    assert "snapshot" in latest_payload
+    assert "written" in latest_payload
 
     meta = json.loads((export_dir / "bundle_meta.json").read_text(encoding="utf-8"))
     artifacts = meta.get("artifacts", [])
