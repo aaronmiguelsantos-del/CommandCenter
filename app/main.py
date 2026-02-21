@@ -189,6 +189,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     operator_portfolio_gate.add_argument("--as-of", default=None, help="Replay as-of ISO8601 timestamp.")
     operator_portfolio_gate.add_argument("--export-path", default=None, help="Write portfolio bundle to this directory.")
+    operator_portfolio_gate.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="Max parallel repo runs (Phase 2). Determinism preserved by stable sorting.",
+    )
+    operator_portfolio_gate.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop launching new repo runs once portfolio is known to be non-zero exit (strict/regression).",
+    )
+    operator_portfolio_gate.add_argument(
+        "--max-repos",
+        type=int,
+        default=None,
+        help="Safety valve: cap number of repos processed (after parsing/expansion).",
+    )
+    operator_portfolio_gate.add_argument(
+        "--export-mode",
+        choices=["portfolio-only", "with-repo-gates"],
+        default="portfolio-only",
+        help="Export mode: portfolio-only writes portfolio_gate.json; with-repo-gates also writes per-repo operator_gate JSON files.",
+    )
 
     operator_gate = operator_sub.add_parser("gate", help="Run strict gate + snapshot write + diff regression check.")
     operator_gate.add_argument("--registry", default=None, help="Optional path to systems registry JSON.")
@@ -1177,6 +1200,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 enforce_sla=bool(args.enforce_sla),
                 as_of=args.as_of,
                 export_path=args.export_path,
+                jobs=int(args.jobs),
+                fail_fast=bool(args.fail_fast),
+                max_repos=args.max_repos,
+                export_mode=str(args.export_mode),
             )
             if bool(args.json):
                 sys.stdout.write(json.dumps(payload, sort_keys=True))

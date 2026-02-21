@@ -16,6 +16,15 @@ Flags passed through to each repo run:
 - `--enforce-sla`
 - `--as-of`
 
+Phase 2 flags:
+- `--jobs N` (bounded parallelism; deterministic output preserved)
+- `--fail-fast` (stop launching new runs when outcome is already non-zero)
+- `--max-repos N` (safety valve)
+- `--export-mode portfolio-only|with-repo-gates`
+
+CI default (A):
+- `--repos-file data/portfolio/repos.txt`
+
 Notes:
 - Each repo path can be either:
   - repo root (registry assumed at `data/registry/systems.json`)

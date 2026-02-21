@@ -37,6 +37,32 @@ def test_portfolio_gate_deterministic_output(tmp_path: Path) -> None:
     assert p1.stdout == p2.stdout
 
 
+def test_portfolio_gate_parallel_determinism(tmp_path: Path) -> None:
+    repo_a = tmp_path / "repo_a"
+    repo_b = tmp_path / "repo_b"
+    p = _run(["failcase", "create", "--path", str(repo_a), "--mode", "clean"])
+    assert p.returncode == 0, p.stderr
+    p = _run(["failcase", "create", "--path", str(repo_b), "--mode", "clean"])
+    assert p.returncode == 0, p.stderr
+
+    args = [
+        "operator",
+        "portfolio-gate",
+        "--json",
+        "--repos",
+        str(repo_a),
+        str(repo_b),
+        "--hide-samples",
+        "--jobs",
+        "4",
+    ]
+    p1 = _run(args)
+    p2 = _run(args)
+    assert p1.returncode == 0, p1.stderr
+    assert p2.returncode == 0, p2.stderr
+    assert p1.stdout == p2.stdout
+
+
 def test_portfolio_gate_export_bundle(tmp_path: Path) -> None:
     repo_a = tmp_path / "repo_a"
     p = _run(["failcase", "create", "--path", str(repo_a), "--mode", "clean"])
@@ -62,6 +88,44 @@ def test_portfolio_gate_export_bundle(tmp_path: Path) -> None:
     meta = json.loads((export_dir / "bundle_meta.json").read_text(encoding="utf-8"))
     assert meta["schema_version"] == "1.0"
     assert meta["artifacts"] == ["bundle_meta.json", "portfolio_gate.json"]
+
+
+def test_portfolio_gate_export_mode_with_repo_gates(tmp_path: Path) -> None:
+    repo_a = tmp_path / "repo_a"
+    repo_b = tmp_path / "repo_b"
+    p = _run(["failcase", "create", "--path", str(repo_a), "--mode", "clean"])
+    assert p.returncode == 0, p.stderr
+    p = _run(["failcase", "create", "--path", str(repo_b), "--mode", "clean"])
+    assert p.returncode == 0, p.stderr
+
+    export_dir = tmp_path / "portfolio_export"
+    p = _run(
+        [
+            "operator",
+            "portfolio-gate",
+            "--json",
+            "--repos",
+            str(repo_a),
+            str(repo_b),
+            "--hide-samples",
+            "--export-path",
+            str(export_dir),
+            "--export-mode",
+            "with-repo-gates",
+            "--jobs",
+            "4",
+        ]
+    )
+    assert p.returncode == 0, p.stderr
+    assert (export_dir / "portfolio_gate.json").exists()
+    assert (export_dir / "bundle_meta.json").exists()
+    meta = json.loads((export_dir / "bundle_meta.json").read_text(encoding="utf-8"))
+    assert meta["schema_version"] == "1.0"
+    artifacts = meta["artifacts"]
+    # Must contain per-repo gate artifacts deterministically.
+    assert "portfolio_gate.json" in artifacts
+    assert "bundle_meta.json" in artifacts
+    assert any(a.startswith("repo_") and a.endswith("_operator_gate.json") for a in artifacts)
 
 
 def test_portfolio_gate_exit_code_aggregates_strict(tmp_path: Path) -> None:

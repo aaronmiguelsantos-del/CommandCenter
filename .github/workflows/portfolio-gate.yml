@@ -1,0 +1,45 @@
+name: Portfolio Gate
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  portfolio-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Tests
+        run: |
+          python -m pytest -q
+
+      - name: Run portfolio gate (enforced)
+        run: |
+          rm -rf ci_artifacts && mkdir -p ci_artifacts/portfolio
+          python -m app.main operator portfolio-gate \
+            --json \
+            --repos-file data/portfolio/repos.txt \
+            --hide-samples \
+            --strict \
+            --enforce-sla \
+            --jobs 4 \
+            --export-path ci_artifacts/portfolio
+      # Any non-zero exit fails the job (enforces 2/3/4)
+      - name: Upload portfolio artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-gate
+          path: ci_artifacts/portfolio

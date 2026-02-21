@@ -5,11 +5,13 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
+# Phase 2 (v3.3.x) Portfolio Gate Contract
 PORTFOLIO_GATE_SCHEMA_VERSION = "1.0"
 
 _VALID_GATE_EXIT_CODES = {0, 2, 3, 4}
@@ -60,7 +62,7 @@ def _infer_repo_root_and_registry(path_str: str) -> tuple[str, str]:
     - registry json  -> registry is that file; repo_root inferred if it matches .../data/registry/systems.json
     """
     p = Path(_normalize_path(path_str))
-    if p.suffix.lower() == ".json":
+    if p.is_file() and p.suffix.lower() == ".json":
         registry = str(p)
         parts = list(p.parts)
         if "data" in parts and "registry" in parts:
@@ -129,7 +131,6 @@ def _stable_top_actions(actions: Any) -> list[dict[str, Any]]:
 def _stable_gate_payload(gate_payload: dict[str, Any], gate_exit_code: int) -> dict[str, Any]:
     strict_failed = bool(gate_payload.get("strict_failed", False)) or gate_exit_code in {2, 4}
     regression_detected = bool(gate_payload.get("regression_detected", False)) or gate_exit_code in {3, 4}
-
     return {
         "command": str(gate_payload.get("command", "operator_gate")),
         "schema_version": str(gate_payload.get("schema_version", "1.0")),
@@ -149,12 +150,6 @@ def _run_operator_gate_for_repo(
     enforce_sla: bool,
     as_of: str | None,
 ) -> dict[str, Any]:
-    """
-    Runs this engine's CLI against a repo's registry by:
-    - setting cwd to repo_root (so relative globs/data resolution behave)
-    - setting PYTHONPATH to engine root (so python -m app.main resolves)
-    - passing --registry to the repo's registry json
-    """
     cmd = [
         sys.executable,
         "-m",
@@ -175,11 +170,11 @@ def _run_operator_gate_for_repo(
         cmd.extend(["--as-of", as_of])
 
     env = dict(os.environ)
-    root = _engine_root()
-    env["PYTHONPATH"] = root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    engine_root = _engine_root()
+    env["PYTHONPATH"] = engine_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
 
     try:
-        proc = subprocess.run(
+        p = subprocess.run(
             cmd,
             cwd=spec.repo_root,
             capture_output=True,
@@ -199,8 +194,8 @@ def _run_operator_gate_for_repo(
             "stderr": f"RUN_ERROR: {type(exc).__name__}: {exc}",
         }
 
+    stdout = (p.stdout or "").strip()
     gate_payload: dict[str, Any] = {}
-    stdout = (proc.stdout or "").strip()
     if stdout:
         try:
             decoded = json.loads(stdout)
@@ -216,9 +211,9 @@ def _run_operator_gate_for_repo(
             "repo_root": spec.repo_root,
             "registry_path": spec.registry_path,
         },
-        "exit_code": int(proc.returncode),
-        "gate": _stable_gate_payload(gate_payload, int(proc.returncode)),
-        "stderr": (proc.stderr or "").strip(),
+        "exit_code": int(p.returncode),
+        "gate": _stable_gate_payload(gate_payload, int(p.returncode)),
+        "stderr": (p.stderr or "").strip(),
     }
 
 
@@ -229,9 +224,7 @@ def _portfolio_exit_code(repo_results: list[dict[str, Any]]) -> int:
     strict_failed_any = False
     regression_any = False
     for r in repo_results:
-        gate = r.get("gate")
-        if not isinstance(gate, dict):
-            continue
+        gate = r.get("gate") or {}
         if bool(gate.get("strict_failed", False)):
             strict_failed_any = True
         if bool(gate.get("regression_detected", False)):
@@ -247,26 +240,13 @@ def _portfolio_exit_code(repo_results: list[dict[str, Any]]) -> int:
 
 
 def _merge_top_actions(repo_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """
-    Deterministic merge:
-    - annotate each action with repo_id + repo_hash
-    - sort by (severity_rank, system_id, repo_id, repo_hash, type)
-    - reassign priority 1..N
-    """
     merged: list[dict[str, Any]] = []
     for rr in repo_results:
-        repo = rr.get("repo")
-        if not isinstance(repo, dict):
-            continue
+        repo = rr.get("repo") or {}
         repo_id = str(repo.get("repo_id", ""))
         repo_hash = str(repo.get("repo_hash", ""))
-        gate = rr.get("gate")
-        if not isinstance(gate, dict):
-            continue
-        actions = gate.get("top_actions")
-        if not isinstance(actions, list):
-            continue
-        for a in actions:
+        gate = rr.get("gate") or {}
+        for a in gate.get("top_actions") or []:
             if not isinstance(a, dict):
                 continue
             aa = dict(a)
@@ -274,34 +254,46 @@ def _merge_top_actions(repo_results: list[dict[str, Any]]) -> list[dict[str, Any
             aa["repo_hash"] = repo_hash
             merged.append(aa)
 
-    merged.sort(
-        key=lambda a: (
-            int(_SEVERITY_RANK.get(str(a.get("type", "")), 99)),
-            str(a.get("system_id", "")),
-            str(a.get("repo_id", "")),
-            str(a.get("repo_hash", "")),
-            str(a.get("type", "")),
-            json.dumps(a, sort_keys=True),
-        )
-    )
+    def _key(a: dict[str, Any]) -> tuple[int, str, str, str, str]:
+        t = str(a.get("type", ""))
+        sr = _SEVERITY_RANK.get(t, 99)
+        system_id = str(a.get("system_id", ""))
+        repo_id = str(a.get("repo_id", ""))
+        repo_hash = str(a.get("repo_hash", ""))
+        return (sr, system_id, repo_id, repo_hash, t)
+
+    merged.sort(key=_key)
+
+    out: list[dict[str, Any]] = []
     for i, a in enumerate(merged, start=1):
-        a["priority"] = i
-    return merged
+        aa = dict(a)
+        aa["priority"] = i
+        out.append(aa)
+    return out
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
 def _write_bundle_meta(export_dir: Path, artifacts: list[str]) -> None:
-    _write_json(
-        export_dir / "bundle_meta.json",
-        {
-            "schema_version": "1.0",
-            "artifacts": artifacts,
-        },
-    )
+    _write_json(export_dir / "bundle_meta.json", {"schema_version": "1.0", "artifacts": artifacts})
+
+
+def _sorted_repo_results(repo_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def k(r: dict[str, Any]) -> tuple[str, str, str]:
+        repo = r.get("repo") or {}
+        return (str(repo.get("repo_id", "")), str(repo.get("repo_hash", "")), str(repo.get("repo_root", "")))
+
+    return sorted(repo_results, key=k)
+
+
+def _signals_nonzero(rr: dict[str, Any]) -> bool:
+    gate = rr.get("gate") or {}
+    if bool(gate.get("strict_failed", False)) or bool(gate.get("regression_detected", False)):
+        return True
+    return int(rr.get("exit_code", 0)) != 0
 
 
 def run_portfolio_gate(
@@ -313,13 +305,16 @@ def run_portfolio_gate(
     enforce_sla: bool,
     as_of: str | None,
     export_path: str | None,
+    jobs: int,
+    fail_fast: bool,
+    max_repos: int | None,
+    export_mode: str,
 ) -> tuple[dict[str, Any], int]:
     repo_paths: list[str] = []
     if repos_file:
         repo_paths.extend(_parse_repos_file(repos_file))
     if repos:
         repo_paths.extend(repos)
-
     if not repo_paths:
         payload = {
             "schema_version": PORTFOLIO_GATE_SCHEMA_VERSION,
@@ -329,20 +324,112 @@ def run_portfolio_gate(
         }
         return payload, 1
 
+    if max_repos is not None:
+        if int(max_repos) <= 0:
+            payload = {
+                "schema_version": PORTFOLIO_GATE_SCHEMA_VERSION,
+                "command": "portfolio_gate",
+                "error": "BAD_MAX_REPOS",
+                "hint": "--max-repos must be >= 1",
+            }
+            return payload, 1
+        repo_paths = repo_paths[: int(max_repos)]
+
+    if export_mode not in {"portfolio-only", "with-repo-gates"}:
+        payload = {
+            "schema_version": PORTFOLIO_GATE_SCHEMA_VERSION,
+            "command": "portfolio_gate",
+            "error": "BAD_EXPORT_MODE",
+            "hint": "--export-mode must be one of: portfolio-only, with-repo-gates",
+        }
+        return payload, 1
+
+    jobs = int(jobs)
+    if jobs < 1:
+        payload = {
+            "schema_version": PORTFOLIO_GATE_SCHEMA_VERSION,
+            "command": "portfolio_gate",
+            "error": "BAD_JOBS",
+            "hint": "--jobs must be >= 1",
+        }
+        return payload, 1
+    jobs = min(jobs, 16)
+
     specs = [_repo_spec(p) for p in repo_paths]
     specs.sort(key=lambda r: (r.repo_id, r.repo_hash, r.repo_root))
 
-    repo_results = [
-        _run_operator_gate_for_repo(
-            spec,
-            hide_samples=bool(hide_samples),
-            strict=bool(strict),
-            enforce_sla=bool(enforce_sla),
-            as_of=as_of,
-        )
-        for spec in specs
-    ]
+    repo_results: list[dict[str, Any]] = []
 
+    if jobs == 1:
+        for spec in specs:
+            rr = _run_operator_gate_for_repo(
+                spec,
+                hide_samples=hide_samples,
+                strict=strict,
+                enforce_sla=enforce_sla,
+                as_of=as_of,
+            )
+            repo_results.append(rr)
+            if fail_fast and _signals_nonzero(rr):
+                break
+    elif not fail_fast:
+        futures = []
+        with ThreadPoolExecutor(max_workers=jobs) as ex:
+            for spec in specs:
+                futures.append(
+                    ex.submit(
+                        _run_operator_gate_for_repo,
+                        spec,
+                        hide_samples=hide_samples,
+                        strict=strict,
+                        enforce_sla=enforce_sla,
+                        as_of=as_of,
+                    )
+                )
+            for fut in as_completed(futures):
+                repo_results.append(fut.result())
+    else:
+        with ThreadPoolExecutor(max_workers=jobs) as ex:
+            pending = {}
+            spec_index = 0
+
+            while spec_index < len(specs) and len(pending) < jobs:
+                spec = specs[spec_index]
+                fut = ex.submit(
+                    _run_operator_gate_for_repo,
+                    spec,
+                    hide_samples=hide_samples,
+                    strict=strict,
+                    enforce_sla=enforce_sla,
+                    as_of=as_of,
+                )
+                pending[fut] = spec
+                spec_index += 1
+
+            stop_launching = False
+            while pending:
+                done, _ = wait(set(pending.keys()), return_when=FIRST_COMPLETED)
+                for fut in done:
+                    pending.pop(fut, None)
+                    rr = fut.result()
+                    repo_results.append(rr)
+                    if _signals_nonzero(rr):
+                        stop_launching = True
+
+                while (not stop_launching) and spec_index < len(specs) and len(pending) < jobs:
+                    spec = specs[spec_index]
+                    fut = ex.submit(
+                        _run_operator_gate_for_repo,
+                        spec,
+                        hide_samples=hide_samples,
+                        strict=strict,
+                        enforce_sla=enforce_sla,
+                        as_of=as_of,
+                    )
+                    pending[fut] = spec
+                    spec_index += 1
+
+    repo_results = _sorted_repo_results(repo_results)
     top_actions = _merge_top_actions(repo_results)
     exit_code = _portfolio_exit_code(repo_results)
 
@@ -355,6 +442,10 @@ def run_portfolio_gate(
             "strict": bool(strict),
             "enforce_sla": bool(enforce_sla),
             "as_of": as_of,
+            "jobs": int(jobs),
+            "fail_fast": bool(fail_fast),
+            "max_repos": int(max_repos) if max_repos is not None else None,
+            "export_mode": export_mode,
         },
         "repos": repo_results,
         "top_actions": top_actions,
@@ -365,6 +456,21 @@ def run_portfolio_gate(
         export_dir = Path(export_path).expanduser().resolve()
         export_dir.mkdir(parents=True, exist_ok=True)
         _write_json(export_dir / "portfolio_gate.json", payload)
-        _write_bundle_meta(export_dir, ["bundle_meta.json", "portfolio_gate.json"])
 
-    return payload, int(exit_code)
+        artifacts: list[str] = ["bundle_meta.json", "portfolio_gate.json"]
+        if export_mode == "with-repo-gates":
+            for rr in repo_results:
+                repo = rr.get("repo") or {}
+                repo_hash = str(repo.get("repo_hash", "unknown"))
+                fn = f"repo_{repo_hash}_operator_gate.json"
+                gate_payload = rr.get("gate")
+                if isinstance(gate_payload, dict):
+                    _write_json(export_dir / fn, gate_payload)
+                else:
+                    _write_json(export_dir / fn, {})
+                artifacts.append(fn)
+            artifacts = sorted(set(artifacts))
+
+        _write_bundle_meta(export_dir, artifacts)
+
+    return payload, exit_code

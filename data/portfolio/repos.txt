@@ -1,0 +1,7 @@
+# Portfolio Gate repo list (Phase 2 / v3.3.x)
+# Each line can be:
+# - repo root path (registry assumed at data/registry/systems.json)
+# - explicit registry json path
+#
+# Default: this repo only
+.

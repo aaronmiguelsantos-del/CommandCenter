@@ -177,3 +177,46 @@ def test_contract_drift_sentinel_export_bundle(tmp_path: Path) -> None:
     _assert_schema_version(report_health, "2.0")
     graph = _load_json(export_dir / "graph.json")
     _assert_schema_version(graph, "1.0")
+
+
+def test_contract_drift_sentinel_portfolio_export(tmp_path: Path) -> None:
+    """
+    Portfolio export contract drift sentinel (v3.3.x):
+    - portfolio_gate.json schema_version pinned (1.0)
+    - bundle_meta.json artifacts list pinned for portfolio-only export
+    """
+    root = tmp_path / "failcase"
+    export_dir = tmp_path / "portfolio_export"
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    p = _run(["failcase", "create", "--path", str(root), "--mode", "clean"])
+    assert p.returncode == 0, f"failcase create failed: {p.stderr}"
+
+    p = _run(
+        [
+            "operator",
+            "portfolio-gate",
+            "--json",
+            "--repos",
+            str(root),
+            "--hide-samples",
+            "--export-path",
+            str(export_dir),
+            "--export-mode",
+            "portfolio-only",
+            "--jobs",
+            "4",
+        ]
+    )
+    assert p.returncode == 0, f"portfolio-gate failed: {p.stderr}"
+
+    assert (export_dir / "portfolio_gate.json").exists()
+    assert (export_dir / "bundle_meta.json").exists()
+
+    pg = _load_json(export_dir / "portfolio_gate.json")
+    _assert_schema_version(pg, "1.0")
+    assert pg.get("command") == "portfolio_gate"
+
+    meta = _load_json(export_dir / "bundle_meta.json")
+    _assert_schema_version(meta, "1.0")
+    assert meta.get("artifacts") == ["bundle_meta.json", "portfolio_gate.json"]
