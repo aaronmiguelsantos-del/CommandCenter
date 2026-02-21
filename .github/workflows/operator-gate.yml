@@ -1,0 +1,104 @@
+name: operator-gate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  operator-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create venv + install deps
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run operator gate (capture output)
+        id: gate
+        run: |
+          set -eu
+          mkdir -p .ci-operator
+          set +e
+          . .venv/bin/activate
+          python -m app.main operator gate --json --export-path .ci-operator > .ci-operator/operator_gate.json
+          gate_exit=$?
+          set -e
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          out_dir = Path(".ci-operator")
+          op_path = out_dir / "operator_gate.json"
+          payload = {}
+          if op_path.exists():
+              try:
+                  payload = json.loads(op_path.read_text(encoding="utf-8"))
+              except Exception:
+                  payload = {}
+
+          diff_path = out_dir / "snapshot_diff.json"
+          if not diff_path.exists():
+              diff = payload.get("diff", {}) if isinstance(payload, dict) else {}
+              diff_path.write_text(json.dumps(diff, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+          meta_path = out_dir / "bundle_meta.json"
+          if not meta_path.exists():
+              meta = {
+                  "artifacts": ["bundle_meta.json", "operator_gate.json", "snapshot_diff.json"],
+                  "fallback": True,
+              }
+              meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+
+          echo "operator_gate_exit_code=${gate_exit}"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path(".ci-operator/operator_gate.json").read_text(encoding="utf-8"))
+          top_actions = payload.get("top_actions", [])
+          strict_reasons = payload.get("strict_reasons", [])
+          reason_codes = sorted(
+              {str(r.get("reason_code", "")) for r in strict_reasons if isinstance(r, dict) and r.get("reason_code")}
+          )
+          print(f"top_actions_count={len(top_actions) if isinstance(top_actions, list) else 0}")
+          print(f"strict_reason_codes={','.join(reason_codes) if reason_codes else 'none'}")
+          PY
+
+          echo "exit_code=${gate_exit}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload operator gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operator-gate-artifacts
+          path: |
+            .ci-operator/operator_gate.json
+            .ci-operator/snapshot_diff.json
+            .ci-operator/bundle_meta.json
+          if-no-files-found: error
+
+      - name: Enforce gate result
+        run: |
+          code="${{ steps.gate.outputs.exit_code }}"
+          if [ "$code" = "0" ]; then
+            exit 0
+          fi
+          if [ "$code" = "2" ] || [ "$code" = "3" ] || [ "$code" = "4" ]; then
+            echo "Operator gate failed with governed exit code: $code"
+            exit 1
+          fi
+          echo "Operator gate returned unexpected non-zero exit code: $code"
+          exit 1
