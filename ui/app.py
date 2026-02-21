@@ -1,503 +1,509 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import time
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional, Tuple
 
 import streamlit as st
 
-try:
-    import pandas as pd  # type: ignore
-except Exception:  # pragma: no cover
-    pd = None  # type: ignore
+# -----------------------------
+# UI META
+# -----------------------------
+UI_VERSION = "0.4"
+DEFAULT_REGISTRY = "data/registry/systems.json"
+DEFAULT_LEDGER = "data/snapshots/report_snapshot_history.jsonl"
 
 
-APP_VERSION = "0.2"
-DEFAULT_PY = ".venv/bin/python"
+# -----------------------------
+# SMALL UTILITIES
+# -----------------------------
+def _is_probably_json(text: str) -> bool:
+    t = (text or "").strip()
+    return (t.startswith("{") and t.endswith("}")) or (t.startswith("[") and t.endswith("]"))
 
 
-@dataclass(frozen=True)
-class CmdResult:
-    rc: int
-    stdout: str
-    stderr: str
-
-
-def _run_cmd(args: list[str]) -> CmdResult:
-    """
-    Read-only command runner.
-    Captures stdout/stderr. Never raises on non-zero.
-    """
+def _safe_json_loads(text: str) -> Optional[Any]:
     try:
-        p = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return CmdResult(rc=int(p.returncode), stdout=p.stdout or "", stderr=p.stderr or "")
-    except Exception as e:
-        return CmdResult(rc=99, stdout="", stderr=f"UI_CMD_ERROR: {e}")
-
-
-def _safe_json_loads(s: str) -> Any | None:
-    try:
-        return json.loads(s)
+        return json.loads(text)
     except Exception:
         return None
 
 
-def _extract_last_json_line(stderr_text: str) -> dict[str, Any] | None:
-    """
-    Strict failure is emitted as one JSON line to stderr.
-    We take the last non-empty line and try to parse it.
-    """
-    lines = [ln.strip() for ln in (stderr_text or "").splitlines() if ln.strip()]
-    if not lines:
-        return None
-    obj = _safe_json_loads(lines[-1])
-    if isinstance(obj, dict):
-        return obj
-    return None
+def _root_cwd() -> Path:
+    # UI is launched from repo root via ./ui/run_ui.sh; still guard.
+    return Path(os.getcwd())
 
 
-def fetch_report_health_json(
-    py: str,
-    registry: str | None,
-    include_staging: bool,
-    include_dev: bool,
-    no_hints: bool,
-) -> dict[str, Any] | None:
-    args = [py, "-m", "app.main", "report", "health", "--json"]
-    if no_hints:
-        args.append("--no-hints")
+def _python_bin() -> str:
+    # Prefer repo venv python if present.
+    repo = _root_cwd()
+    venv_py = repo / ".venv" / "bin" / "python"
+    if venv_py.exists():
+        return str(venv_py)
+    return "python3"
+
+
+@dataclass(frozen=True)
+class CmdResult:
+    returncode: int
+    stdout: str
+    stderr: str
+    argv: list[str]
+
+
+def run_cli(argv: list[str], timeout_sec: int = 30) -> CmdResult:
+    """
+    Runs the CLI and returns stdout/stderr. Never raises.
+    """
+    py = _python_bin()
+    full = [py, "-m", "app.main", *argv]
+    try:
+        p = subprocess.run(
+            full,
+            cwd=str(_root_cwd()),
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+        )
+        return CmdResult(
+            returncode=int(p.returncode),
+            stdout=p.stdout or "",
+            stderr=p.stderr or "",
+            argv=full,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return CmdResult(
+            returncode=124,
+            stdout=(exc.stdout or "") if hasattr(exc, "stdout") else "",
+            stderr="TIMEOUT",
+            argv=full,
+        )
+    except Exception as exc:
+        return CmdResult(
+            returncode=1,
+            stdout="",
+            stderr=f"RUN_ERROR: {type(exc).__name__}: {exc}",
+            argv=full,
+        )
+
+
+def show_cmd_debug(res: CmdResult) -> None:
+    with st.expander("Command debug", expanded=False):
+        st.code(" ".join(res.argv))
+        st.write(f"exit={res.returncode}")
+        if res.stderr.strip():
+            st.subheader("stderr")
+            st.code(res.stderr)
+        if res.stdout.strip():
+            st.subheader("stdout")
+            st.code(res.stdout)
+
+
+def show_json_or_text(title: str, res: CmdResult) -> None:
+    st.subheader(title)
+    if res.returncode not in (0, 2):  # 2 is strict failure by design
+        st.error(f"Command failed (exit={res.returncode}).")
+        show_cmd_debug(res)
+        return
+
+    out = (res.stdout or "").strip()
+    if _is_probably_json(out):
+        payload = _safe_json_loads(out)
+        if payload is not None:
+            st.json(payload)
+        else:
+            st.code(out)
+    else:
+        st.code(out)
+
+    # show strict stderr payload (one-line JSON) if present
+    if res.stderr.strip():
+        st.caption("stderr (strict failure payload / diagnostics)")
+        st.code(res.stderr.strip())
+
+    show_cmd_debug(res)
+
+
+def _extract_health_system_rows(res: CmdResult) -> list[dict[str, Any]]:
+    if res.returncode not in (0, 2):
+        return []
+    payload = _safe_json_loads((res.stdout or "").strip())
+    if not isinstance(payload, dict):
+        return []
+    rows = payload.get("systems", [])
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _extract_report_system_status_rows(res: CmdResult) -> list[dict[str, Any]]:
+    if res.returncode not in (0, 2):
+        return []
+    payload = _safe_json_loads((res.stdout or "").strip())
+    if not isinstance(payload, dict):
+        return []
+    systems = payload.get("systems", {})
+    if not isinstance(systems, dict):
+        return []
+    rows = systems.get("status", [])
+    if not isinstance(rows, list):
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+# -----------------------------
+# ARG BUILDERS (PARITY IS HERE)
+# -----------------------------
+def build_policy_args(include_staging: bool, include_dev: bool) -> list[str]:
+    args: list[str] = []
     if include_staging:
         args.append("--include-staging")
     if include_dev:
         args.append("--include-dev")
-    if registry:
-        args.extend(["--registry", registry])
-    r = _run_cmd(args)
-    if r.rc != 0:
-        return None
-    obj = _safe_json_loads(r.stdout)
-    return obj if isinstance(obj, dict) else None
+    return args
 
 
-def fetch_report_graph_json(py: str, registry: str | None) -> dict[str, Any] | None:
-    args = [py, "-m", "app.main", "report", "graph", "--json"]
-    # Support both CLI variants (compat): report graph --registry / --registry-path
-    if registry:
-        args.extend(["--registry", registry])
-    r = _run_cmd(args)
-    if r.rc != 0:
-        return None
-    obj = _safe_json_loads(r.stdout)
-    return obj if isinstance(obj, dict) else None
+def build_registry_args(registry_path: str) -> list[str]:
+    p = (registry_path or "").strip()
+    if not p:
+        return []
+    return ["--registry", p]
 
 
-def run_strict_check(
-    py: str,
-    registry: str | None,
-    include_staging: bool,
-    include_dev: bool,
+def build_report_health_args(
+    *,
+    registry_path: str,
+    days: int,
+    tail: int,
+    strict: bool,
     enforce_sla: bool,
-) -> tuple[int, str | None, dict[str, Any] | None, str]:
-    """
-    Runs: health --all --strict [policy flags] [--enforce-sla]
-    Returns:
-      - rc (0 pass, 2 fail, 1 misuse, 99 runner error)
-      - stdout_preview (optional, may be large)
-      - strict_payload (parsed from stderr last json line if present)
-      - raw_stderr (always returned for debugging)
-    """
-    args = [py, "-m", "app.main", "health", "--all", "--strict"]
-    if include_staging:
-        args.append("--include-staging")
-    if include_dev:
-        args.append("--include-dev")
-    if enforce_sla:
+    include_staging: bool,
+    include_dev: bool,
+    include_hints: bool,
+    as_json: bool,
+) -> list[str]:
+    args = ["report", "health", "--days", str(int(days)), "--tail", str(int(tail))]
+    if as_json:
+        args.append("--json")
+    if strict:
+        args.append("--strict")
+    if strict and enforce_sla:
+        # IMPORTANT: parity fix — only meaningful with strict, but harmless if passed.
         args.append("--enforce-sla")
-    if registry:
-        args.extend(["--registry", registry])
-
-    r = _run_cmd(args)
-    strict_payload = _extract_last_json_line(r.stderr)
-
-    stdout_preview = r.stdout.strip() if r.stdout else ""
-    if stdout_preview:
-        # keep UI responsive
-        stdout_preview = "\n".join(stdout_preview.splitlines()[:60])
-    else:
-        stdout_preview = None
-
-    return r.rc, stdout_preview, strict_payload, r.stderr or ""
+    args += build_policy_args(include_staging, include_dev)
+    if not include_hints:
+        args.append("--no-hints")
+    args += build_registry_args(registry_path)
+    return args
 
 
-def _render_kv(label: str, value: Any) -> None:
-    st.markdown(f"**{label}:** `{value}`")
+def build_report_graph_args(*, registry_path: str, as_json: bool) -> list[str]:
+    args = ["report", "graph"]
+    if as_json:
+        args.append("--json")
+    args += build_registry_args(registry_path)
+    return args
 
 
-def _render_json(obj: Any) -> None:
-    st.code(json.dumps(obj, indent=2, sort_keys=True), language="json")
+def build_health_all_strict_args(
+    *,
+    registry_path: str,
+    strict: bool,
+    enforce_sla: bool,
+    include_staging: bool,
+    include_dev: bool,
+    hide_samples: bool,
+    as_json: bool,
+) -> list[str]:
+    args = ["health", "--all"]
+    if as_json:
+        args.append("--json")
+    args += build_registry_args(registry_path)
+    args += build_policy_args(include_staging, include_dev)
+    if strict:
+        args.append("--strict")
+    if strict and enforce_sla:
+        args.append("--enforce-sla")
+    if hide_samples:
+        args.append("--hide-samples")
+    return args
 
 
-def _render_reasons_table(reasons: list[dict[str, Any]]) -> None:
-    rows = []
-    for r in reasons:
-        rows.append(
-            {
-                "system_id": r.get("system_id"),
-                "tier": r.get("tier"),
-                "reason_code": r.get("reason_code"),
-            }
-        )
-    st.table(rows)
+def build_report_snapshot_write_args(
+    *,
+    registry_path: str,
+    days: int,
+    tail: int,
+    strict: bool,
+    enforce_sla: bool,
+    include_staging: bool,
+    include_dev: bool,
+    include_hints: bool,
+) -> list[str]:
+    args = ["report", "snapshot", "--write", "--json", "--days", str(int(days)), "--tail", str(int(tail))]
+    if strict:
+        args.append("--strict")
+    if strict and enforce_sla:
+        args.append("--enforce-sla")
+    args += build_policy_args(include_staging, include_dev)
+    if not include_hints:
+        args.append("--no-hints")
+    args += build_registry_args(registry_path)
+    return args
 
 
-def _policy_tiers_from_flags(include_staging: bool, include_dev: bool) -> list[str]:
-    if include_dev:
-        return ["prod", "staging", "dev"]
-    if include_staging:
-        return ["prod", "staging"]
-    return ["prod"]
+def build_report_snapshot_tail_args(*, ledger: str, n: int) -> list[str]:
+    args = ["report", "snapshot", "tail", "--json", "--ledger", ledger, "--n", str(int(n))]
+    return args
 
 
-def _systems_status_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    Normalizes report into a list of per-system rows.
-    Supports both:
-      - report["systems"]["status"] (newer)
-      - report["systems"]["systems"] or report["systems"] (fallback)
-    """
-    systems = report.get("systems")
-    if isinstance(systems, dict):
-        status = systems.get("status")
-        if isinstance(status, list):
-            return [x for x in status if isinstance(x, dict)]
-        # fallback: sometimes a report may include "systems" list under systems
-        inner = systems.get("systems")
-        if isinstance(inner, list):
-            return [x for x in inner if isinstance(x, dict)]
-    if isinstance(systems, list):
-        return [x for x in systems if isinstance(x, dict)]
-    return []
+def build_report_snapshot_stats_args(*, ledger: str, days: int) -> list[str]:
+    args = ["report", "snapshot", "stats", "--json", "--ledger", ledger, "--days", str(int(days))]
+    return args
 
 
-def _risk_rank_map(report: dict[str, Any]) -> dict[str, int]:
-    """
-    risk.ranked expected as list of dicts; we convert to 1-based rank.
-    """
-    out: dict[str, int] = {}
-    risk = report.get("risk")
-    if not isinstance(risk, dict):
-        return out
-    ranked = risk.get("ranked")
-    if not isinstance(ranked, list):
-        return out
-    rank = 1
-    for item in ranked:
-        if not isinstance(item, dict):
-            continue
-        sid = item.get("system_id")
-        if isinstance(sid, str) and sid not in out:
-            out[sid] = rank
-            rank += 1
-    return out
+def build_report_snapshot_run_args(*, every: int, count: int, as_json: bool) -> list[str]:
+    args = ["report", "snapshot", "run", "--every", str(int(every)), "--count", str(int(count))]
+    if as_json:
+        args.append("--json")
+    return args
 
 
-def _impact_size_proxy(report: dict[str, Any], system_id: str) -> int:
-    """
-    Report impact is global (sources + impacted list).
-    We compute a conservative proxy:
-      - if system_id is an impact source, impact_size = len(impacted)
-      - else 0
-
-    This avoids inventing per-source attribution.
-    """
-    impact = report.get("impact")
-    if not isinstance(impact, dict):
-        return 0
-    sources = impact.get("sources")
-    impacted = impact.get("impacted")
-    if not isinstance(sources, list) or not isinstance(impacted, list):
-        return 0
-    if system_id in [s for s in sources if isinstance(s, str)]:
-        return len([x for x in impacted if isinstance(x, dict)])
-    return 0
+def build_validate_args(*, registry_path: str) -> list[str]:
+    # validate supports --registry in your CLI
+    args = ["validate"]
+    args += build_registry_args(registry_path)
+    return args
 
 
-def _owners_to_str(owners: Any) -> str:
-    if isinstance(owners, list):
-        xs = [str(x) for x in owners if x is not None]
-        return ", ".join(xs)
-    if isinstance(owners, str):
-        return owners
-    return ""
+def build_failcase_create_args(*, path: str, mode: str) -> list[str]:
+    return ["failcase", "create", "--path", path, "--mode", mode]
 
 
-def _build_operator_table(report: dict[str, Any], policy_tiers: list[str]) -> list[dict[str, Any]]:
-    status_rows = _systems_status_rows(report)
-    risk_rank = _risk_rank_map(report)
+# -----------------------------
+# STREAMLIT APP
+# -----------------------------
+st.set_page_config(page_title=f"Bootstrapping Engine UI v{UI_VERSION}", layout="wide")
 
-    out: list[dict[str, Any]] = []
-    for r in status_rows:
-        sid = r.get("system_id")
-        if not isinstance(sid, str):
-            continue
+st.title(f"Bootstrapping Engine — UI v{UI_VERSION}")
+st.caption("Read-first operator console. Strict/report parity is enforced by construction.")
 
-        tier = r.get("tier")
-        if not isinstance(tier, str):
-            tier = "unknown"
+with st.sidebar:
+    st.header("Mode")
+    mode = st.selectbox("UI mode", ["Read", "Ops", "Dev"], index=0)
 
-        status = r.get("status")
-        if not isinstance(status, str):
-            status = "unknown"
+    st.divider()
+    st.header("Inputs")
 
-        score = r.get("score_total", r.get("current_score", 0.0))
-        try:
-            score_f = float(score)
-        except Exception:
-            score_f = 0.0
+    registry_path = st.text_input("Registry path", value=DEFAULT_REGISTRY)
+    ledger_path = st.text_input("Snapshot ledger", value=DEFAULT_LEDGER)
 
-        sla = r.get("sla_status")
-        if not isinstance(sla, str):
-            sla = "unknown"
+    st.divider()
+    st.header("Policy")
+    colp1, colp2 = st.columns(2)
+    with colp1:
+        include_staging = st.checkbox("Include staging", value=False)
+    with colp2:
+        include_dev = st.checkbox("Include dev", value=False)
 
-        owners = _owners_to_str(r.get("owners"))
-        impact_size = _impact_size_proxy(report, sid)
-        rr = risk_rank.get(sid, 999999)
+    strict = st.checkbox("Strict", value=False)
+    enforce_sla = st.checkbox("Enforce SLA (strict)", value=False, help="Only applies when Strict is enabled.")
+    show_samples = st.checkbox("Show sample systems", value=False)
 
-        out.append(
-            {
-                "system_id": sid,
-                "tier": tier,
-                "status": status,
-                "score": round(score_f, 2),
-                "sla_status": sla,
-                "impact_size": int(impact_size),
-                "risk_rank": int(rr),
-                "owners": owners,
-                "_policy_blocked": tier in set(policy_tiers),
-            }
-        )
+    st.divider()
+    st.header("Report settings")
+    colr1, colr2, colr3 = st.columns(3)
+    with colr1:
+        days = st.number_input("Days", min_value=1, max_value=365, value=30, step=1)
+    with colr2:
+        tail = st.number_input("Tail (history lines)", min_value=1, max_value=200000, value=2000, step=100)
+    with colr3:
+        include_hints = st.checkbox("Include hints", value=True)
 
-    # Deterministic default sort:
-    # 1) red first
-    # 2) SLA breach next
-    # 3) larger impact_size first
-    # 4) lower risk_rank first
-    # 5) system_id tie-break
-    def _key(x: dict[str, Any]) -> tuple:
-        status = str(x.get("status"))
-        sla = str(x.get("sla_status"))
-        impact = int(x.get("impact_size", 0))
-        rr = int(x.get("risk_rank", 999999))
-        sid = str(x.get("system_id"))
-        return (
-            0 if status == "red" else (1 if status == "yellow" else 2),
-            0 if sla == "breach" else 1,
-            -impact,
-            rr,
-            sid,
-        )
+    st.divider()
+    st.header("Quick actions")
+    if st.button("Refresh now", use_container_width=True):
+        st.session_state["_refresh"] = time.time()
 
-    out.sort(key=_key)
-    return out
+# Enforce implied policy: include_dev implies staging
+if include_dev and not include_staging:
+    include_staging = True
 
+# Enforce enforce_sla only with strict (but keep UI state visible)
+effective_enforce_sla = bool(strict and enforce_sla)
 
-def _render_table(rows: list[dict[str, Any]]) -> None:
-    if not rows:
-        st.info("No systems found in report payload.")
-        return
+# -----------------------------
+# TOP ROW: STRICT CHECK + REPORT HEALTH (PARITY)
+# -----------------------------
+left, right = st.columns(2, gap="large")
 
-    visible = []
-    for r in rows:
-        # hide internal helper
-        rr = dict(r)
-        rr.pop("_policy_blocked", None)
-        visible.append(rr)
+with left:
+    st.subheader("Strict gate (health --all)")
+    strict_args = build_health_all_strict_args(
+        registry_path=registry_path,
+        strict=bool(strict),
+        enforce_sla=bool(effective_enforce_sla),
+        include_staging=bool(include_staging),
+        include_dev=bool(include_dev),
+        hide_samples=not bool(show_samples),
+        as_json=True,
+    )
+    res_strict = run_cli(strict_args, timeout_sec=30)
+    show_json_or_text("health --all output (json)", res_strict)
+    strict_rows = _extract_health_system_rows(res_strict)
+    if strict_rows:
+        st.caption("Strict systems")
+        st.dataframe(strict_rows, use_container_width=True)
 
-    if pd is not None:
-        df = pd.DataFrame(visible)
-        # Keep a stable column order
-        cols = ["system_id", "tier", "status", "score", "sla_status", "impact_size", "risk_rank", "owners"]
-        cols = [c for c in cols if c in df.columns] + [c for c in df.columns if c not in cols]
-        df = df[cols]
-        st.dataframe(df, use_container_width=True, hide_index=True)
-    else:
-        st.table(visible)
+with right:
+    st.subheader("Report health (report health --json)")
+    report_args = build_report_health_args(
+        registry_path=registry_path,
+        days=int(days),
+        tail=int(tail),
+        strict=bool(strict),
+        enforce_sla=bool(effective_enforce_sla),
+        include_staging=bool(include_staging),
+        include_dev=bool(include_dev),
+        include_hints=bool(include_hints),
+        as_json=True,
+    )
+    res_report = run_cli(report_args, timeout_sec=60)
+    show_json_or_text("report health output (json)", res_report)
+    report_rows = _extract_report_system_status_rows(res_report)
+    if not show_samples:
+        report_rows = [row for row in report_rows if not row.get("is_sample")]
+    if report_rows:
+        st.caption("Report systems (filtered)")
+        st.dataframe(report_rows, use_container_width=True)
 
+st.divider()
 
-def main() -> None:
-    st.set_page_config(page_title="Codex Kernel UI", layout="wide")
-    st.title("Codex Kernel UI (read-only)")
-    st.caption(f"UI version {APP_VERSION} — deterministic, no state mutation. Uses CLI as source of truth.")
+# -----------------------------
+# READ MODE CONTENT
+# -----------------------------
+if mode in ("Read", "Ops", "Dev"):
+    tab1, tab2, tab3 = st.tabs(["Graph", "Snapshots", "Export/Raw"])
 
-    with st.sidebar:
-        st.header("Controls")
-        py = st.text_input("Python executable", value=DEFAULT_PY)
-        registry = st.text_input("Registry path override (optional)", value="").strip() or None
-
-        st.subheader("Policy (strict/report)")
-        include_staging = st.checkbox("Include staging in policy", value=False)
-        include_dev = st.checkbox("Include dev in policy (implies staging)", value=False)
-        enforce_sla = st.checkbox("Enforce SLA in strict", value=False)
-        no_hints = st.checkbox("Disable report hints", value=False)
-
-        st.subheader("Table filters")
-        only_policy_tiers = st.checkbox("Show only policy tiers", value=True)
-        only_red_yellow = st.checkbox("Show only red/yellow", value=False)
-        only_sla_breach = st.checkbox("Show only SLA breaches", value=False)
-
-        st.divider()
-        run_now = st.button("Run refresh", type="primary")
-
-    if include_dev:
-        include_staging = True
-
-    if not run_now:
-        st.info("Click **Run refresh** to fetch report + graph + strict status.")
-        return
-
-    policy_tiers_ui = _policy_tiers_from_flags(include_staging, include_dev)
-
-    # --- Fetch report (primary UI substrate)
-    report = fetch_report_health_json(py, registry, include_staging, include_dev, no_hints)
-
-    # --- Top row: operator table (highest ROI)
-    st.subheader("Operator table")
-    if report is None:
-        st.error("Failed to fetch report health JSON. Check Python path, venv, and working directory.")
-    else:
-        rows = _build_operator_table(report, policy_tiers_ui)
-
-        # apply filters (deterministic, no re-sorting needed)
-        filtered = []
-        for r in rows:
-            if only_policy_tiers and not bool(r.get("_policy_blocked")):
-                continue
-            if only_red_yellow:
-                if str(r.get("status")) not in {"red", "yellow"}:
-                    continue
-            if only_sla_breach:
-                if str(r.get("sla_status")) != "breach":
-                    continue
-            filtered.append(r)
-
-        # small KPIs
-        reds = sum(1 for r in rows if str(r.get("status")) == "red")
-        breaches = sum(1 for r in rows if str(r.get("sla_status")) == "breach")
-        st.markdown("#### KPIs")
-        c1, c2, c3 = st.columns(3)
+    with tab1:
+        c1, c2 = st.columns(2, gap="large")
         with c1:
-            _render_kv("policy_tiers", "+".join(policy_tiers_ui))
+            st.subheader("Graph (json)")
+            res_graph_json = run_cli(build_report_graph_args(registry_path=registry_path, as_json=True), timeout_sec=30)
+            show_json_or_text("report graph --json", res_graph_json)
         with c2:
-            _render_kv("red_systems", reds)
-        with c3:
-            _render_kv("sla_breaches", breaches)
+            st.subheader("Graph (text)")
+            res_graph_txt = run_cli(build_report_graph_args(registry_path=registry_path, as_json=False), timeout_sec=30)
+            show_json_or_text("report graph (text)", res_graph_txt)
 
-        _render_table(filtered)
+    with tab2:
+        st.subheader("Snapshot ledger viewer")
+        col_s1, col_s2, col_s3 = st.columns(3)
+        with col_s1:
+            n_tail = st.number_input("Tail entries", min_value=1, max_value=200, value=10, step=1)
+        with col_s2:
+            stats_days = st.number_input("Stats days", min_value=1, max_value=365, value=7, step=1)
+        with col_s3:
+            st.caption("Ledger path")
+            st.code(ledger_path)
 
-        with st.expander("Full report JSON", expanded=False):
-            _render_json(report)
+        colv1, colv2 = st.columns(2, gap="large")
+        with colv1:
+            res_tail = run_cli(build_report_snapshot_tail_args(ledger=ledger_path, n=int(n_tail)), timeout_sec=30)
+            show_json_or_text("report snapshot tail --json", res_tail)
+        with colv2:
+            res_stats = run_cli(build_report_snapshot_stats_args(ledger=ledger_path, days=int(stats_days)), timeout_sec=30)
+            show_json_or_text("report snapshot stats --json", res_stats)
 
-    # --- Second row: report + graph (context)
+    with tab3:
+        st.subheader("Raw outputs")
+        st.caption("This tab is for quick troubleshooting when something looks off.")
+        st.write(
+            {
+                "ui_version": UI_VERSION,
+                "cwd": str(_root_cwd()),
+                "python": _python_bin(),
+                "registry_path": registry_path,
+                "ledger_path": ledger_path,
+                "policy": {
+                    "include_staging": bool(include_staging),
+                    "include_dev": bool(include_dev),
+                    "strict": bool(strict),
+                    "enforce_sla": bool(effective_enforce_sla),
+                },
+            }
+        )
+
+st.divider()
+
+# -----------------------------
+# OPS MODE: SAFE OPERATOR BUTTONS
+# -----------------------------
+if mode in ("Ops", "Dev"):
+    st.header("Ops actions")
+
+    op1, op2, op3 = st.columns(3, gap="large")
+
+    with op1:
+        st.subheader("Validate")
+        if st.button("Run validate", use_container_width=True):
+            res_val = run_cli(build_validate_args(registry_path=registry_path), timeout_sec=60)
+            show_json_or_text("validate output", res_val)
+
+    with op2:
+        st.subheader("Write snapshot")
+        st.caption("Appends to ledger via `report snapshot --write --json`.")
+        if st.button("Write snapshot now", use_container_width=True):
+            res_write = run_cli(
+                build_report_snapshot_write_args(
+                    registry_path=registry_path,
+                    days=int(days),
+                    tail=int(tail),
+                    strict=bool(strict),
+                    enforce_sla=bool(effective_enforce_sla),
+                    include_staging=bool(include_staging),
+                    include_dev=bool(include_dev),
+                    include_hints=bool(include_hints),
+                ),
+                timeout_sec=60,
+            )
+            show_json_or_text("snapshot write payload", res_write)
+
+    with op3:
+        st.subheader("Failcase (tmp)")
+        st.caption("Creates a deterministic repo under /tmp for demos.")
+        fc_mode = st.selectbox("Failcase mode", ["sla-breach", "red-status", "clean"], index=0)
+        fc_path = st.text_input("Failcase path", value="/tmp/codex-kernel-failcase")
+        if st.button("Create failcase", use_container_width=True):
+            res_fc = run_cli(build_failcase_create_args(path=fc_path, mode=fc_mode), timeout_sec=30)
+            show_json_or_text("failcase create", res_fc)
+
     st.divider()
-    col1, col2 = st.columns([1, 1])
+    st.subheader("Snapshot run loop")
+    col_loop1, col_loop2, col_loop3 = st.columns(3)
+    with col_loop1:
+        every = st.number_input("Every (seconds)", min_value=1, max_value=300, value=5, step=1)
+    with col_loop2:
+        count = st.number_input("Count", min_value=1, max_value=50, value=3, step=1)
+    with col_loop3:
+        run_json = st.checkbox("Emit JSON", value=True)
 
-    with col1:
-        st.subheader("Health report (summary)")
-        if report is None:
-            st.error("No report available.")
-        else:
-            summary = report.get("summary", {}) if isinstance(report.get("summary"), dict) else {}
-            policy = report.get("policy", {}) if isinstance(report.get("policy"), dict) else {}
+    if st.button("Run loop now", use_container_width=True):
+        res_loop = run_cli(build_report_snapshot_run_args(every=int(every), count=int(count), as_json=bool(run_json)), timeout_sec=300)
+        show_json_or_text("report snapshot run", res_loop)
 
-            _render_kv("report_version", report.get("report_version"))
-            _render_kv("now_status", summary.get("current_status"))
-            _render_kv("now_score", summary.get("current_score"))
-            _render_kv("strict_ready_now", summary.get("strict_ready_now"))
+# -----------------------------
+# DEV MODE: MUTATIONS (HARD-GATED)
+# -----------------------------
+if mode == "Dev":
+    st.header("Dev mutations (guarded)")
+    st.warning("These mutate repo state. Keep off unless you mean it.")
 
-            st.markdown("#### Policy (from report)")
-            _render_json(policy)
-
-    with col2:
-        st.subheader("Dependency graph")
-        graph = fetch_report_graph_json(py, registry)
-        if graph is None:
-            st.error("Failed to fetch report graph JSON.")
-        else:
-            _render_kv("graph_version", graph.get("graph_version"))
-            topo = graph.get("topo", [])
-            if isinstance(topo, list):
-                st.markdown("#### Topo order (first 20)")
-                st.code("\n".join([str(x) for x in topo[:20]]))
-            with st.expander("Full graph JSON", expanded=False):
-                _render_json(graph)
-
-    # --- Third row: strict check (live)
-    st.divider()
-    st.subheader("Strict check (live)")
-
-    rc, stdout_preview, strict_payload, raw_stderr = run_strict_check(
-        py=py,
-        registry=registry,
-        include_staging=include_staging,
-        include_dev=include_dev,
-        enforce_sla=enforce_sla,
-    )
-
-    st.markdown("#### Result")
-    _render_kv("exit_code", rc)
-    _render_kv("meaning", "PASS" if rc == 0 else ("FAIL (strict)" if rc == 2 else "ERROR/MISUSE"))
-
-    st.markdown("#### Policy (UI)")
-    _render_json(
-        {
-            "blocked_tiers": policy_tiers_ui,
-            "include_staging": bool(include_staging),
-            "include_dev": bool(include_dev),
-            "enforce_sla": bool(enforce_sla),
-        }
-    )
-
-    if rc == 2:
-        st.error("Strict failed (exit 2). Rendering STRICT_FAILURE_SCHEMA payload from stderr.")
-        if strict_payload is None:
-            st.warning("No strict JSON payload found on stderr. Expand raw stderr below.")
-        else:
-            st.markdown("#### Strict failure payload (schema v1)")
-            _render_kv("schema_version", strict_payload.get("schema_version"))
-            policy = strict_payload.get("policy", {})
-            reasons = strict_payload.get("reasons", [])
-
-            st.markdown("**Policy (from strict payload)**")
-            _render_json(policy)
-
-            if isinstance(reasons, list) and reasons:
-                st.markdown("**Reasons (table)**")
-                _render_reasons_table(reasons)
-
-                st.markdown("**Reasons (details)**")
-                for i, r in enumerate(reasons, start=1):
-                    with st.expander(f"Reason #{i}: {r.get('system_id')} — {r.get('reason_code')}", expanded=False):
-                        _render_json(r)
-            else:
-                st.warning("Strict payload contains no reasons list.")
-
-    else:
-        st.success("Strict passed (or did not run strict failure). No strict payload expected.")
-
-    if stdout_preview:
-        with st.expander("health --all stdout preview (first 60 lines)", expanded=False):
-            st.code(stdout_preview)
-
-    if raw_stderr.strip():
-        with st.expander("raw stderr (debug)", expanded=False):
-            st.code(raw_stderr)
-
-
-if __name__ == "__main__":
-    main()
+    armed = st.checkbox("I know what I'm doing (arm mutations)", value=False)
+    if armed:
+        st.caption("Mutations are intentionally not implemented in v0.4. Add in v0.5+ only if you really need them.")
+        st.info("Planned: system add / contract new / log. (Not wired here yet.)")
