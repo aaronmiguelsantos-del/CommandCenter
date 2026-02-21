@@ -11,6 +11,7 @@ from core.bootstrap import bootstrap_repo
 from core.export import export_bundle
 from core.graph import build_graph, graph_as_json, render_graph_text
 from core.health import compute_and_write_health, compute_health_for_system
+from core.portfolio_gate import run_portfolio_gate
 from core.registry import load_registry, load_registry_systems, registry_path, upsert_system
 from core.snapshot import build_snapshot_ledger_entry, compute_stats, run_snapshot_loop, tail_snapshots, write_snapshot_ledger
 from core.snapshot_diff import render_snapshot_diff_pretty, snapshot_diff_from_ledger
@@ -163,6 +164,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     operator_cmd = subparsers.add_parser("operator", help="Operator-grade deterministic workflows.")
     operator_sub = operator_cmd.add_subparsers(dest="operator_command", required=True)
+    operator_portfolio_gate = operator_sub.add_parser(
+        "portfolio-gate",
+        help="Run operator gate across multiple repos/registries and aggregate results deterministically.",
+    )
+    operator_portfolio_gate.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    operator_portfolio_gate.add_argument(
+        "--repos",
+        nargs="+",
+        default=None,
+        help="Repo roots OR registry json paths. If repo root, registry is assumed at data/registry/systems.json.",
+    )
+    operator_portfolio_gate.add_argument(
+        "--repos-file",
+        default=None,
+        help="Newline-delimited list of repo roots or registry paths (# comments allowed).",
+    )
+    operator_portfolio_gate.add_argument("--hide-samples", action="store_true", help="Exclude sample systems.")
+    operator_portfolio_gate.add_argument("--strict", action="store_true", help="Enable strict gating per repo.")
+    operator_portfolio_gate.add_argument(
+        "--enforce-sla",
+        action="store_true",
+        help="In strict mode, include SLA policy breaches per repo.",
+    )
+    operator_portfolio_gate.add_argument("--as-of", default=None, help="Replay as-of ISO8601 timestamp.")
+    operator_portfolio_gate.add_argument("--export-path", default=None, help="Write portfolio bundle to this directory.")
+
     operator_gate = operator_sub.add_parser("gate", help="Run strict gate + snapshot write + diff regression check.")
     operator_gate.add_argument("--registry", default=None, help="Optional path to systems registry JSON.")
     operator_gate.add_argument("--hide-samples", action="store_true", help="Exclude sample systems from snapshot output.")
@@ -186,7 +213,7 @@ def build_parser() -> argparse.ArgumentParser:
     failcase_create.add_argument("--path", required=True, help="Target directory for failcase fixture.")
     failcase_create.add_argument(
         "--mode",
-        choices=["sla-breach"],
+        choices=["sla-breach", "clean"],
         default="sla-breach",
         help="Failcase scenario mode.",
     )
@@ -872,26 +899,75 @@ def _create_failcase_sla_breach(target_dir: Path) -> Path:
     return registry_path_out
 
 
+def _create_failcase_clean(target_dir: Path) -> Path:
+    now_utc = datetime.now(timezone.utc)
+    fresh_ts = _iso_utc(now_utc)
+
+    contracts_path = target_dir / "data" / "contracts" / "prod-clean-0001.json"
+    logs_path = target_dir / "data" / "logs" / "prod-clean-events.jsonl"
+    registry_path_out = target_dir / "data" / "registry" / "systems.json"
+
+    _write_json_file(
+        contracts_path,
+        {
+            "contract_id": "prod-clean-0001",
+            "system_id": "prod-clean",
+            "name": "Prod clean contract",
+            "primitives_used": ["a", "b", "c"],
+            "invariants": ["a", "b", "c"],
+        },
+    )
+    _write_jsonl_file(
+        logs_path,
+        [
+            {
+                "event_id": "prod-clean-evt-000001",
+                "system_id": "prod-clean",
+                "event_type": "status_update",
+                "ts": fresh_ts,
+            }
+        ],
+    )
+    _write_json_file(
+        registry_path_out,
+        {
+            "systems": [
+                {
+                    "system_id": "prod-clean",
+                    "contracts_glob": "data/contracts/prod-clean-*.json",
+                    "events_glob": "data/logs/prod-clean-events.jsonl",
+                    "is_sample": False,
+                    "tier": "prod",
+                }
+            ]
+        },
+    )
+    return registry_path_out
+
+
 def _emit_failcase_create(mode: str, path_arg: str) -> int:
     target_dir = Path(path_arg).expanduser()
     if not target_dir.is_absolute():
         target_dir = Path.cwd() / target_dir
     if mode == "sla-breach":
         reg = _create_failcase_sla_breach(target_dir)
-        print(
-            json.dumps(
-                {
-                    "created": True,
-                    "mode": mode,
-                    "path": str(target_dir),
-                    "registry": str(reg),
-                },
-                indent=2,
-                sort_keys=True,
-            )
+    elif mode == "clean":
+        reg = _create_failcase_clean(target_dir)
+    else:
+        raise ValueError(f"Unsupported failcase mode: {mode}")
+    print(
+        json.dumps(
+            {
+                "created": True,
+                "mode": mode,
+                "path": str(target_dir),
+                "registry": str(reg),
+            },
+            indent=2,
+            sort_keys=True,
         )
-        return 0
-    raise ValueError(f"Unsupported failcase mode: {mode}")
+    )
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1092,6 +1168,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "operator":
         bootstrap_repo()
+        if args.operator_command == "portfolio-gate":
+            payload, exit_code = run_portfolio_gate(
+                repos=args.repos,
+                repos_file=args.repos_file,
+                hide_samples=bool(args.hide_samples),
+                strict=bool(args.strict),
+                enforce_sla=bool(args.enforce_sla),
+                as_of=args.as_of,
+                export_path=args.export_path,
+            )
+            if bool(args.json):
+                sys.stdout.write(json.dumps(payload, sort_keys=True))
+                sys.stdout.write("\n")
+            else:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            return int(exit_code)
         if args.operator_command == "gate":
             try:
                 gate_as_of = _parse_as_of(getattr(args, "as_of", None))

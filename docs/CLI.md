@@ -1,4 +1,27 @@
-# CLI Contract
+# CLI
+
+## operator portfolio-gate
+
+Runs `operator gate` across multiple repo roots / registries and aggregates results deterministically.
+
+```bash
+python -m app.main operator portfolio-gate --json --repos /path/repoA /path/repoB
+python -m app.main operator portfolio-gate --json --repos-file repos.txt
+python -m app.main operator portfolio-gate --json --repos . --export-path /tmp/portfolio
+```
+
+Flags passed through to each repo run:
+- `--hide-samples`
+- `--strict`
+- `--enforce-sla`
+- `--as-of`
+
+Notes:
+- Each repo path can be either:
+  - repo root (registry assumed at `data/registry/systems.json`)
+  - explicit registry json path
+
+See also: `docs/WORKFLOWS.md` and `pipelines/portfolio_gate/`
 
 ## Commands
 - `python -m app.main init`
