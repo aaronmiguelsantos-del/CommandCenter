@@ -10,10 +10,36 @@ from typing import Any, Optional, Tuple
 
 import streamlit as st
 
+try:
+    from ui.cli_cmds import (
+        PolicyFlags,
+        SnapshotFlags,
+        build_health_all_cmd,
+        build_report_graph_cmd,
+        build_report_health_cmd,
+        build_report_snapshot_diff_cmd,
+        build_report_snapshot_run_cmd,
+        build_report_snapshot_stats_cmd,
+        build_report_snapshot_tail_cmd,
+    )
+except ModuleNotFoundError:
+    # Supports streamlit execution when cwd is ui/ (no package prefix on sys.path).
+    from cli_cmds import (
+        PolicyFlags,
+        SnapshotFlags,
+        build_health_all_cmd,
+        build_report_graph_cmd,
+        build_report_health_cmd,
+        build_report_snapshot_diff_cmd,
+        build_report_snapshot_run_cmd,
+        build_report_snapshot_stats_cmd,
+        build_report_snapshot_tail_cmd,
+    )
+
 # -----------------------------
 # UI META
 # -----------------------------
-UI_VERSION = "0.4"
+UI_VERSION = "0.5"
 DEFAULT_REGISTRY = "data/registry/systems.json"
 DEFAULT_LEDGER = "data/snapshots/report_snapshot_history.jsonl"
 
@@ -59,8 +85,14 @@ def run_cli(argv: list[str], timeout_sec: int = 30) -> CmdResult:
     """
     Runs the CLI and returns stdout/stderr. Never raises.
     """
-    py = _python_bin()
-    full = [py, "-m", "app.main", *argv]
+    # Accept either:
+    # - app args: ["health", "--all", ...]
+    # - full cmd: [python, "-m", "app.main", "health", "--all", ...]
+    if len(argv) >= 3 and argv[1] == "-m" and argv[2] == "app.main":
+        full = argv
+    else:
+        py = _python_bin()
+        full = [py, "-m", "app.main", *argv]
     try:
         p = subprocess.run(
             full,
@@ -312,7 +344,7 @@ with st.sidebar:
 
     strict = st.checkbox("Strict", value=False)
     enforce_sla = st.checkbox("Enforce SLA (strict)", value=False, help="Only applies when Strict is enabled.")
-    show_samples = st.checkbox("Show sample systems", value=False)
+    show_samples = st.toggle("Show sample systems", value=False)
 
     st.divider()
     st.header("Report settings")
@@ -335,6 +367,15 @@ if include_dev and not include_staging:
 
 # Enforce enforce_sla only with strict (but keep UI state visible)
 effective_enforce_sla = bool(strict and enforce_sla)
+hide_samples = not bool(show_samples)
+
+policy = PolicyFlags(
+    strict=bool(strict),
+    enforce_sla=bool(effective_enforce_sla),
+    include_staging=bool(include_staging),
+    include_dev=bool(include_dev),
+    hide_samples=bool(hide_samples),
+)
 
 # -----------------------------
 # TOP ROW: STRICT CHECK + REPORT HEALTH (PARITY)
@@ -343,43 +384,44 @@ left, right = st.columns(2, gap="large")
 
 with left:
     st.subheader("Strict gate (health --all)")
-    strict_args = build_health_all_strict_args(
-        registry_path=registry_path,
-        strict=bool(strict),
-        enforce_sla=bool(effective_enforce_sla),
-        include_staging=bool(include_staging),
-        include_dev=bool(include_dev),
-        hide_samples=not bool(show_samples),
+    strict_args = build_health_all_cmd(
+        cli_python=_python_bin(),
+        registry_path=registry_path.strip() or None,
+        policy=policy,
         as_json=True,
     )
     res_strict = run_cli(strict_args, timeout_sec=30)
     show_json_or_text("health --all output (json)", res_strict)
     strict_rows = _extract_health_system_rows(res_strict)
+    strict_suffix = " (samples hidden)" if hide_samples else ""
+    st.caption(f"Showing {len(strict_rows)} systems{strict_suffix}")
     if strict_rows:
         st.caption("Strict systems")
         st.dataframe(strict_rows, use_container_width=True)
 
 with right:
     st.subheader("Report health (report health --json)")
-    report_args = build_report_health_args(
-        registry_path=registry_path,
+    report_args = build_report_health_cmd(
+        cli_python=_python_bin(),
+        registry_path=registry_path.strip() or None,
+        policy=policy,
         days=int(days),
         tail=int(tail),
-        strict=bool(strict),
-        enforce_sla=bool(effective_enforce_sla),
-        include_staging=bool(include_staging),
-        include_dev=bool(include_dev),
         include_hints=bool(include_hints),
         as_json=True,
     )
     res_report = run_cli(report_args, timeout_sec=60)
     show_json_or_text("report health output (json)", res_report)
     report_rows = _extract_report_system_status_rows(res_report)
-    if not show_samples:
-        report_rows = [row for row in report_rows if not row.get("is_sample")]
-    if report_rows:
+    report_total = len(report_rows)
+    filtered_report_rows = report_rows
+    if hide_samples:
+        filtered_report_rows = [row for row in report_rows if not row.get("is_sample")]
+    suffix = " (samples hidden)" if hide_samples else ""
+    st.caption(f"Showing {len(filtered_report_rows)} / {report_total} systems{suffix}")
+    if filtered_report_rows:
         st.caption("Report systems (filtered)")
-        st.dataframe(report_rows, use_container_width=True)
+        st.dataframe(filtered_report_rows, use_container_width=True)
 
 st.divider()
 
@@ -393,31 +435,179 @@ if mode in ("Read", "Ops", "Dev"):
         c1, c2 = st.columns(2, gap="large")
         with c1:
             st.subheader("Graph (json)")
-            res_graph_json = run_cli(build_report_graph_args(registry_path=registry_path, as_json=True), timeout_sec=30)
+            res_graph_json = run_cli(
+                build_report_graph_cmd(
+                    cli_python=_python_bin(),
+                    registry_path=registry_path.strip() or None,
+                    as_json=True,
+                ),
+                timeout_sec=30,
+            )
             show_json_or_text("report graph --json", res_graph_json)
         with c2:
             st.subheader("Graph (text)")
-            res_graph_txt = run_cli(build_report_graph_args(registry_path=registry_path, as_json=False), timeout_sec=30)
+            res_graph_txt = run_cli(
+                build_report_graph_cmd(
+                    cli_python=_python_bin(),
+                    registry_path=registry_path.strip() or None,
+                    as_json=False,
+                ),
+                timeout_sec=30,
+            )
             show_json_or_text("report graph (text)", res_graph_txt)
 
     with tab2:
-        st.subheader("Snapshot ledger viewer")
-        col_s1, col_s2, col_s3 = st.columns(3)
+        st.subheader("Snapshots")
+        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
         with col_s1:
-            n_tail = st.number_input("Tail entries", min_value=1, max_value=200, value=10, step=1)
+            n_tail_rows = st.number_input("Tail rows", min_value=1, max_value=300, value=20, step=1)
         with col_s2:
             stats_days = st.number_input("Stats days", min_value=1, max_value=365, value=7, step=1)
         with col_s3:
-            st.caption("Ledger path")
-            st.code(ledger_path)
+            diff_a = st.text_input("Diff A ref", value="prev")
+        with col_s4:
+            diff_b = st.text_input("Diff B ref", value="latest")
 
-        colv1, colv2 = st.columns(2, gap="large")
-        with colv1:
-            res_tail = run_cli(build_report_snapshot_tail_args(ledger=ledger_path, n=int(n_tail)), timeout_sec=30)
+        st.caption("Ledger path")
+        st.code(ledger_path)
+
+        snap_flags = SnapshotFlags(
+            ledger=ledger_path,
+            tail=int(tail),
+            days=int(stats_days),
+            strict=bool(strict),
+            enforce_sla=bool(effective_enforce_sla),
+            include_staging=bool(include_staging),
+            include_dev=bool(include_dev),
+        )
+
+        st.write("Current policy toggles")
+        st.json(
+            {
+                "strict": bool(snap_flags.strict),
+                "enforce_sla": bool(snap_flags.enforce_sla),
+                "include_staging": bool(snap_flags.include_staging),
+                "include_dev": bool(snap_flags.include_dev),
+                "hide_samples": bool(policy.hide_samples),
+            }
+        )
+
+        # Tail
+        st.markdown("### Tail")
+        tail_btn = st.button("Refresh tail", use_container_width=True)
+        if tail_btn or True:
+            res_tail = run_cli(
+                build_report_snapshot_tail_cmd(
+                    snap_flags,
+                    n=int(n_tail_rows),
+                    registry=registry_path.strip() or None,
+                    cli_python=_python_bin(),
+                ),
+                timeout_sec=30,
+            )
             show_json_or_text("report snapshot tail --json", res_tail)
-        with colv2:
-            res_stats = run_cli(build_report_snapshot_stats_args(ledger=ledger_path, days=int(stats_days)), timeout_sec=30)
+            tail_payload = _safe_json_loads((res_tail.stdout or "").strip())
+            if isinstance(tail_payload, list):
+                rows: list[dict[str, Any]] = []
+                for r in tail_payload:
+                    if not isinstance(r, dict):
+                        continue
+                    systems = r.get("systems", [])
+                    systems_count = len(systems) if isinstance(systems, list) else 0
+                    sf = r.get("strict_failure")
+                    strict_failed = bool(isinstance(sf, dict) and sf.get("strict_failed", True))
+                    reason_codes: list[str] = []
+                    if isinstance(sf, dict):
+                        reasons = sf.get("reasons", [])
+                        if isinstance(reasons, list):
+                            reason_codes = sorted(
+                                {
+                                    str(x.get("reason_code", ""))
+                                    for x in reasons
+                                    if isinstance(x, dict)
+                                }
+                            )
+                    summary = r.get("summary", {})
+                    strict_ready_now = summary.get("strict_ready_now") if isinstance(summary, dict) else None
+                    rows.append(
+                        {
+                            "ts": str(r.get("ts", "")),
+                            "systems_count": systems_count,
+                            "strict_failed": strict_failed,
+                            "reason_codes": ",".join(reason_codes) if reason_codes else "",
+                            "strict_ready_now": strict_ready_now,
+                        }
+                    )
+
+                st.caption(f"Showing {len(rows)} / {len(tail_payload)} snapshots")
+                st.dataframe(rows, use_container_width=True)
+
+                if tail_payload and isinstance(tail_payload[-1], dict):
+                    embedded_policy = tail_payload[-1].get("policy")
+                    if isinstance(embedded_policy, dict):
+                        st.write("Latest embedded snapshot policy")
+                        st.json(embedded_policy)
+
+                with st.expander("View JSON", expanded=False):
+                    st.json(tail_payload)
+
+        # Stats
+        st.markdown("### Stats")
+        stats_btn = st.button("Refresh stats", use_container_width=True)
+        if stats_btn or True:
+            res_stats = run_cli(
+                build_report_snapshot_stats_cmd(
+                    snap_flags,
+                    registry=registry_path.strip() or None,
+                    cli_python=_python_bin(),
+                ),
+                timeout_sec=30,
+            )
             show_json_or_text("report snapshot stats --json", res_stats)
+            stats_payload = _safe_json_loads((res_stats.stdout or "").strip())
+            if isinstance(stats_payload, dict):
+                c1, c2, c3 = st.columns(3)
+                c1.metric("rows/total", str(stats_payload.get("rows", stats_payload.get("total", 0))))
+                c2.metric("strict_failures/rate", str(stats_payload.get("strict_failures", stats_payload.get("strict_ready_rate", 0))))
+                c3.metric("days", str(stats_payload.get("days", stats_days)))
+
+                if isinstance(stats_payload.get("top_system_reasons"), list):
+                    st.write("Top movers")
+                    st.dataframe(stats_payload.get("top_system_reasons"), use_container_width=True)
+                elif isinstance(stats_payload.get("top_reasons"), list):
+                    st.write("Top movers")
+                    st.dataframe(stats_payload.get("top_reasons"), use_container_width=True)
+                elif isinstance(stats_payload.get("reason_codes"), dict):
+                    st.write("Top movers")
+                    st.dataframe(
+                        [{"reason_code": k, "count": v} for k, v in stats_payload.get("reason_codes", {}).items()],
+                        use_container_width=True,
+                    )
+
+        # Diff
+        st.markdown("### Diff")
+        diff_btn = st.button("Diff prev→latest", use_container_width=True)
+        if diff_btn or True:
+            res_diff = run_cli(
+                build_report_snapshot_diff_cmd(
+                    snap_flags,
+                    a=diff_a.strip() or "prev",
+                    b=diff_b.strip() or "latest",
+                    registry=registry_path.strip() or None,
+                    cli_python=_python_bin(),
+                ),
+                timeout_sec=30,
+            )
+            show_json_or_text("report snapshot diff --json", res_diff)
+            diff_payload = _safe_json_loads((res_diff.stdout or "").strip())
+            diff_obj = diff_payload.get("diff", {}) if isinstance(diff_payload, dict) else {}
+            if isinstance(diff_obj, dict):
+                st.write("Status changes")
+                st.dataframe(diff_obj.get("system_status_changes", []), use_container_width=True)
+                st.write("New strict reasons")
+                st.dataframe(diff_obj.get("new_strict_reasons", []), use_container_width=True)
+                st.write("Risk rank delta (top movers)")
+                st.dataframe(diff_obj.get("risk_rank_delta_top", []), use_container_width=True)
 
     with tab3:
         st.subheader("Raw outputs")
@@ -493,7 +683,19 @@ if mode in ("Ops", "Dev"):
         run_json = st.checkbox("Emit JSON", value=True)
 
     if st.button("Run loop now", use_container_width=True):
-        res_loop = run_cli(build_report_snapshot_run_args(every=int(every), count=int(count), as_json=bool(run_json)), timeout_sec=300)
+        loop_flags = SnapshotFlags(
+            ledger=ledger_path,
+            tail=int(tail),
+            days=int(days),
+            strict=bool(strict),
+            enforce_sla=bool(effective_enforce_sla),
+            include_staging=bool(include_staging),
+            include_dev=bool(include_dev),
+        )
+        res_loop = run_cli(
+            build_report_snapshot_run_cmd(loop_flags, every=int(every), count=int(count), cli_python=_python_bin()),
+            timeout_sec=300,
+        )
         show_json_or_text("report snapshot run", res_loop)
 
 # -----------------------------

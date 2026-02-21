@@ -10,6 +10,10 @@
 - `python -m app.main report health --json`
 - `python -m app.main report health --strict --enforce-sla --json`
 - `python -m app.main report snapshot --write --json`
+- `python -m app.main report snapshot tail --json --ledger data/snapshots/report_snapshot_history.jsonl --n 20`
+- `python -m app.main report snapshot stats --json --ledger data/snapshots/report_snapshot_history.jsonl --days 7`
+- `python -m app.main report snapshot run --every 1 --count 3 --json`
+- `python -m app.main report snapshot diff --json --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest`
 - `python -m app.main report health --no-hints`
 - `python -m app.main validate`
 - `python -m app.main failcase create --path /tmp/codex-kernel-failcase --mode sla-breach`
@@ -27,7 +31,17 @@
 ```bash
 python -m app.main health --all --json
 python -m app.main report health --json
+python -m app.main report snapshot tail --json --ledger data/snapshots/report_snapshot_history.jsonl --n 20
+python -m app.main report snapshot stats --json --ledger data/snapshots/report_snapshot_history.jsonl --days 7
+python -m app.main report snapshot run --every 1 --count 3 --json
+python -m app.main report snapshot diff --json --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest
 python -m app.main validate
 python -m app.main system add ops-core "Ops Core"
 python -m app.main log ops-core status_update
 ```
+
+## Snapshot Diff Refs
+- `latest`: most recent ledger entry
+- `prev` / `previous`: entry before latest
+- `<int>`: index into tail rows (supports negatives, Python style)
+- `<iso ts>`: exact or equivalent ISO timestamp instant

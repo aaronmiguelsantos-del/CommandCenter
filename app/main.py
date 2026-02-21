@@ -13,6 +13,7 @@ from core.graph import build_graph, graph_as_json, render_graph_text
 from core.health import compute_and_write_health, compute_health_for_system
 from core.registry import load_registry, load_registry_systems, registry_path, upsert_system
 from core.snapshot import build_snapshot_ledger_entry, compute_stats, run_snapshot_loop, tail_snapshots, write_snapshot_ledger
+from core.snapshot_diff import snapshot_diff_from_ledger
 from core.reporting import compute_report, format_text, load_history
 from core.strict import build_policy, collect_strict_failures, strict_failure_payload
 from core.storage import append_event, create_contract
@@ -23,7 +24,7 @@ from core.validate import validate_repo
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="bootstrapping-engine",
-        description="Bootstrapping Engine v0.1 CLI",
+        description="Bootstrapping Engine v2.6 CLI",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -132,6 +133,13 @@ def build_parser() -> argparse.ArgumentParser:
     snap_run.add_argument("--every", type=int, default=60, help="Seconds between writes.")
     snap_run.add_argument("--count", type=int, default=60, help="How many snapshots to write.")
     snap_run.add_argument("--json", action="store_true", help="Emit JSON payload.")
+
+    report_snapshot_diff = report_snapshot_sub.add_parser("diff", help="Diff two snapshot ledger entries (a -> b).")
+    report_snapshot_diff.add_argument("--ledger", default="data/snapshots/report_snapshot_history.jsonl", help="Ledger JSONL path.")
+    report_snapshot_diff.add_argument("--tail", type=int, default=2000, help="Max ledger lines read.")
+    report_snapshot_diff.add_argument("--a", required=True, help="Ref: latest|prev|<int index>|<iso ts>.")
+    report_snapshot_diff.add_argument("--b", required=True, help="Ref: latest|prev|<int index>|<iso ts>.")
+    report_snapshot_diff.add_argument("--json", action="store_true", help="Emit JSON.")
 
 
     report_graph = report_sub.add_parser("graph", help="Print dependency graph (text or JSON).")
@@ -740,6 +748,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _emit_report_graph(args.json, args.registry)
         if args.report_command == "snapshot":
             # Subcommand mode: tail/stats/run (Full-A)
+            if getattr(args, "snapshot_command", None) == "diff":
+                payload = snapshot_diff_from_ledger(
+                    ledger=args.ledger,
+                    a=args.a,
+                    b=args.b,
+                    tail=args.tail,
+                )
+                if args.json:
+                    print(json.dumps(payload, indent=2, sort_keys=True))
+                else:
+                    print(json.dumps(payload, indent=2, sort_keys=True))
+                return 0
+
             if getattr(args, "snapshot_command", None) == "tail":
                 rows = tail_snapshots(args.ledger, n=args.n, since_hours=args.since_hours)
                 if args.json:

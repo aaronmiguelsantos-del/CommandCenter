@@ -27,6 +27,22 @@ python -m app.main validate
 python -m app.main health --all --strict
 ```
 
+## UI Quickstart
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+pip install -r ui/requirements-ui.txt
+
+./ui/run_ui.sh
+```
+
+UI panels:
+- `Graph`: dependency graph JSON + text
+- `Snapshots`: snapshot tail/stats/diff views
+- `Export/Raw`: environment + policy context
+- `Strict gate` + `Report health`: parity-safe policy checks at top
+
 ## Tests
 ```bash
 pytest -q
