@@ -212,6 +212,81 @@ def test_report_no_hints_flag_disables_hints_json_and_text(tmp_path: Path, monke
     assert payload["hints"] == []
 
 
+def test_report_snapshot_diff_command_outputs_json(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    bootstrap_repo()
+
+    ledger = tmp_path / "data" / "snapshots" / "report_snapshot_history.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {
+            "ts": "2026-02-16T12:00:00Z",
+            "snapshot": {
+                "ts": "2026-02-16T12:00:00Z",
+                "systems": [{"system_id": "x", "status": "green"}],
+                "strict_failure": None,
+            },
+        },
+        {
+            "ts": "2026-02-16T13:00:00Z",
+            "snapshot": {
+                "ts": "2026-02-16T13:00:00Z",
+                "systems": [{"system_id": "x", "status": "yellow"}],
+                "strict_failure": {
+                    "schema_version": "1.0",
+                    "strict_failed": True,
+                    "policy": {
+                        "blocked_tiers": ["prod"],
+                        "include_staging": False,
+                        "include_dev": False,
+                        "enforce_sla": True,
+                    },
+                    "reasons": [
+                        {
+                            "system_id": "x",
+                            "tier": "prod",
+                            "reason_code": "SLA_BREACH",
+                            "details": {"threshold_days": 7},
+                        }
+                    ],
+                },
+            },
+        },
+    ]
+    ledger.write_text("\n".join(json.dumps(r, sort_keys=True) for r in rows) + "\n", encoding="utf-8")
+
+    rc = app_main(
+        [
+            "report",
+            "snapshot",
+            "diff",
+            "--json",
+            "--ledger",
+            str(ledger),
+            "--tail",
+            "100",
+            "--a",
+            "prev",
+            "--b",
+            "latest",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ledger"] == str(ledger)
+    assert payload["diff"]["a"]["ts"] == "2026-02-16T12:00:00Z"
+    assert payload["diff"]["b"]["ts"] == "2026-02-16T13:00:00Z"
+    assert payload["diff"]["system_status_changes"] == [{"system_id": "x", "from": "green", "to": "yellow"}]
+    assert payload["diff"]["new_strict_reasons"] == [
+        {
+            "system_id": "x",
+            "tier": "prod",
+            "reason_code": "SLA_BREACH",
+            "details": {"threshold_days": 7},
+        }
+    ]
+
+
 def test_report_health_missing_history_exits_zero(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     bootstrap_repo()

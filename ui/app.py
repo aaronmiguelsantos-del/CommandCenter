@@ -358,7 +358,7 @@ with st.sidebar:
 
     st.divider()
     st.header("Quick actions")
-    if st.button("Refresh now", use_container_width=True):
+    if st.button("Refresh now", width="stretch"):
         st.session_state["_refresh"] = time.time()
 
 # Enforce implied policy: include_dev implies staging
@@ -397,7 +397,7 @@ with left:
     st.caption(f"Showing {len(strict_rows)} systems{strict_suffix}")
     if strict_rows:
         st.caption("Strict systems")
-        st.dataframe(strict_rows, use_container_width=True)
+        st.dataframe(strict_rows, width="stretch")
 
 with right:
     st.subheader("Report health (report health --json)")
@@ -421,7 +421,7 @@ with right:
     st.caption(f"Showing {len(filtered_report_rows)} / {report_total} systems{suffix}")
     if filtered_report_rows:
         st.caption("Report systems (filtered)")
-        st.dataframe(filtered_report_rows, use_container_width=True)
+        st.dataframe(filtered_report_rows, width="stretch")
 
 st.divider()
 
@@ -494,7 +494,7 @@ if mode in ("Read", "Ops", "Dev"):
 
         # Tail
         st.markdown("### Tail")
-        tail_btn = st.button("Refresh tail", use_container_width=True)
+        tail_btn = st.button("Refresh tail", width="stretch")
         if tail_btn or True:
             res_tail = run_cli(
                 build_report_snapshot_tail_cmd(
@@ -540,7 +540,7 @@ if mode in ("Read", "Ops", "Dev"):
                     )
 
                 st.caption(f"Showing {len(rows)} / {len(tail_payload)} snapshots")
-                st.dataframe(rows, use_container_width=True)
+                st.dataframe(rows, width="stretch")
 
                 if tail_payload and isinstance(tail_payload[-1], dict):
                     embedded_policy = tail_payload[-1].get("policy")
@@ -553,7 +553,7 @@ if mode in ("Read", "Ops", "Dev"):
 
         # Stats
         st.markdown("### Stats")
-        stats_btn = st.button("Refresh stats", use_container_width=True)
+        stats_btn = st.button("Refresh stats", width="stretch")
         if stats_btn or True:
             res_stats = run_cli(
                 build_report_snapshot_stats_cmd(
@@ -573,20 +573,20 @@ if mode in ("Read", "Ops", "Dev"):
 
                 if isinstance(stats_payload.get("top_system_reasons"), list):
                     st.write("Top movers")
-                    st.dataframe(stats_payload.get("top_system_reasons"), use_container_width=True)
+                    st.dataframe(stats_payload.get("top_system_reasons"), width="stretch")
                 elif isinstance(stats_payload.get("top_reasons"), list):
                     st.write("Top movers")
-                    st.dataframe(stats_payload.get("top_reasons"), use_container_width=True)
+                    st.dataframe(stats_payload.get("top_reasons"), width="stretch")
                 elif isinstance(stats_payload.get("reason_codes"), dict):
                     st.write("Top movers")
                     st.dataframe(
                         [{"reason_code": k, "count": v} for k, v in stats_payload.get("reason_codes", {}).items()],
-                        use_container_width=True,
+                        width="stretch",
                     )
 
         # Diff
         st.markdown("### Diff")
-        diff_btn = st.button("Diff prev→latest", use_container_width=True)
+        diff_btn = st.button("Diff prev→latest", width="stretch")
         if diff_btn or True:
             res_diff = run_cli(
                 build_report_snapshot_diff_cmd(
@@ -603,11 +603,11 @@ if mode in ("Read", "Ops", "Dev"):
             diff_obj = diff_payload.get("diff", {}) if isinstance(diff_payload, dict) else {}
             if isinstance(diff_obj, dict):
                 st.write("Status changes")
-                st.dataframe(diff_obj.get("system_status_changes", []), use_container_width=True)
+                st.dataframe(diff_obj.get("system_status_changes", []), width="stretch")
                 st.write("New strict reasons")
-                st.dataframe(diff_obj.get("new_strict_reasons", []), use_container_width=True)
+                st.dataframe(diff_obj.get("new_strict_reasons", []), width="stretch")
                 st.write("Risk rank delta (top movers)")
-                st.dataframe(diff_obj.get("risk_rank_delta_top", []), use_container_width=True)
+                st.dataframe(diff_obj.get("risk_rank_delta_top", []), width="stretch")
 
     with tab3:
         st.subheader("Raw outputs")
@@ -640,14 +640,14 @@ if mode in ("Ops", "Dev"):
 
     with op1:
         st.subheader("Validate")
-        if st.button("Run validate", use_container_width=True):
+        if st.button("Run validate", width="stretch"):
             res_val = run_cli(build_validate_args(registry_path=registry_path), timeout_sec=60)
             show_json_or_text("validate output", res_val)
 
     with op2:
         st.subheader("Write snapshot")
         st.caption("Appends to ledger via `report snapshot --write --json`.")
-        if st.button("Write snapshot now", use_container_width=True):
+        if st.button("Write snapshot now", width="stretch"):
             res_write = run_cli(
                 build_report_snapshot_write_args(
                     registry_path=registry_path,
@@ -668,7 +668,7 @@ if mode in ("Ops", "Dev"):
         st.caption("Creates a deterministic repo under /tmp for demos.")
         fc_mode = st.selectbox("Failcase mode", ["sla-breach", "red-status", "clean"], index=0)
         fc_path = st.text_input("Failcase path", value="/tmp/codex-kernel-failcase")
-        if st.button("Create failcase", use_container_width=True):
+        if st.button("Create failcase", width="stretch"):
             res_fc = run_cli(build_failcase_create_args(path=fc_path, mode=fc_mode), timeout_sec=30)
             show_json_or_text("failcase create", res_fc)
 
@@ -682,7 +682,7 @@ if mode in ("Ops", "Dev"):
     with col_loop3:
         run_json = st.checkbox("Emit JSON", value=True)
 
-    if st.button("Run loop now", use_container_width=True):
+    if st.button("Run loop now", width="stretch"):
         loop_flags = SnapshotFlags(
             ledger=ledger_path,
             tail=int(tail),
