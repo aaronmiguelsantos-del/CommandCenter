@@ -5,7 +5,7 @@ import json
 import sys
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from core.bootstrap import bootstrap_repo
 from core.export import export_bundle
@@ -13,7 +13,7 @@ from core.graph import build_graph, graph_as_json, render_graph_text
 from core.health import compute_and_write_health, compute_health_for_system
 from core.registry import load_registry, load_registry_systems, registry_path, upsert_system
 from core.snapshot import build_snapshot_ledger_entry, compute_stats, run_snapshot_loop, tail_snapshots, write_snapshot_ledger
-from core.snapshot_diff import snapshot_diff_from_ledger
+from core.snapshot_diff import render_snapshot_diff_pretty, snapshot_diff_from_ledger
 from core.reporting import compute_report, format_text, load_history
 from core.strict import build_policy, collect_strict_failures, strict_failure_payload
 from core.storage import append_event, create_contract
@@ -137,9 +137,11 @@ def build_parser() -> argparse.ArgumentParser:
     report_snapshot_diff = report_snapshot_sub.add_parser("diff", help="Diff two snapshot ledger entries (a -> b).")
     report_snapshot_diff.add_argument("--ledger", default="data/snapshots/report_snapshot_history.jsonl", help="Ledger JSONL path.")
     report_snapshot_diff.add_argument("--tail", type=int, default=2000, help="Max ledger lines read.")
-    report_snapshot_diff.add_argument("--a", required=True, help="Ref: latest|prev|<int index>|<iso ts>.")
-    report_snapshot_diff.add_argument("--b", required=True, help="Ref: latest|prev|<int index>|<iso ts>.")
+    report_snapshot_diff.add_argument("--a", default="prev", help="Ref: latest|prev|<int index>|<iso ts>.")
+    report_snapshot_diff.add_argument("--b", default="latest", help="Ref: latest|prev|<int index>|<iso ts>.")
     report_snapshot_diff.add_argument("--json", action="store_true", help="Emit JSON.")
+    report_snapshot_diff.add_argument("--pretty", action="store_true", help="Emit human-readable table output.")
+    report_snapshot_diff.add_argument("--as-of", default=None, help="Replay mode timestamp in ISO8601.")
 
 
     report_graph = report_sub.add_parser("graph", help="Print dependency graph (text or JSON).")
@@ -158,6 +160,21 @@ def build_parser() -> argparse.ArgumentParser:
     report_export.add_argument("--no-hints", action="store_true", help="Disable action hints in report output.")
     report_export.add_argument("--ledger", default="data/snapshots/report_snapshot_history.jsonl", help="Path to snapshot ledger JSONL.")
     report_export.add_argument("--n-tail", type=int, default=50, help="How many ledger lines to include in tail export.")
+
+    operator_cmd = subparsers.add_parser("operator", help="Operator-grade deterministic workflows.")
+    operator_sub = operator_cmd.add_subparsers(dest="operator_command", required=True)
+    operator_gate = operator_sub.add_parser("gate", help="Run strict gate + snapshot write + diff regression check.")
+    operator_gate.add_argument("--registry", default=None, help="Optional path to systems registry JSON.")
+    operator_gate.add_argument("--include-staging", action="store_true", help="Strict policy includes staging tier.")
+    operator_gate.add_argument("--include-dev", action="store_true", help="Strict policy includes dev tier (implies staging).")
+    operator_gate.add_argument("--enforce-sla", action="store_true", help="In strict mode, include SLA policy breaches.")
+    operator_gate.add_argument("--days", type=int, default=30, help="Analyze snapshots within last N days.")
+    operator_gate.add_argument("--tail", type=int, default=2000, help="Max history lines read from JSONL.")
+    operator_gate.add_argument("--ledger", default="data/snapshots/report_snapshot_history.jsonl", help="Snapshot ledger path.")
+    operator_gate.add_argument("--as-of", default=None, help="Replay mode timestamp in ISO8601.")
+    operator_gate.add_argument("--export-path", default=None, help="Optional export bundle output directory.")
+    operator_gate.add_argument("--n-tail", type=int, default=50, help="How many ledger lines to include in export tail.")
+    operator_gate.add_argument("--json", action="store_true", help="Emit JSON payload.")
 
     subparsers.add_parser("validate", help="Validate registry, schema, globs, and event timestamps.")
 
@@ -444,6 +461,50 @@ def _emit_report_snapshot(
     write: bool,
     as_json: bool,
 ) -> int:
+    payload = _build_report_snapshot_payload(
+        days=days,
+        tail=tail,
+        strict=strict,
+        registry_path_arg=registry_path_arg,
+        as_of=as_of,
+        include_hints=include_hints,
+        include_staging=include_staging,
+        include_dev=include_dev,
+        enforce_sla=enforce_sla,
+        write=write,
+    )
+    entry = payload["snapshot"] if isinstance(payload.get("snapshot"), dict) else {}
+    if as_json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(
+            json.dumps(
+                {
+                    "written": payload.get("written", False),
+                    "path": payload.get("path"),
+                    "ts": entry.get("ts"),
+                    "systems": len(entry.get("systems", [])) if isinstance(entry.get("systems"), list) else 0,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    return 0
+
+
+def _build_report_snapshot_payload(
+    *,
+    days: int,
+    tail: int,
+    strict: bool,
+    registry_path_arg: str | None,
+    as_of: datetime | None,
+    include_hints: bool,
+    include_staging: bool,
+    include_dev: bool,
+    enforce_sla: bool,
+    write: bool,
+) -> dict[str, Any]:
     blocked_tiers = _blocked_tiers(include_staging, include_dev)
     blocked = sorted(blocked_tiers)
     strict_policy = {
@@ -489,23 +550,118 @@ def _emit_report_snapshot(
         "as_of": _iso_utc(as_of) if as_of is not None else None,
         "snapshot": entry,
     }
+    return payload
 
-    if as_json:
-        print(json.dumps(payload, indent=2, sort_keys=True))
-    else:
-        print(
-            json.dumps(
-                {
-                    "written": payload["written"],
-                    "path": payload["path"],
-                    "ts": entry.get("ts"),
-                    "systems": len(entry.get("systems", [])),
-                },
-                indent=2,
-                sort_keys=True,
-            )
+
+def _diff_has_regressions(payload: dict[str, Any]) -> bool:
+    diff = payload.get("diff")
+    if not isinstance(diff, dict):
+        return False
+    actions = diff.get("top_actions", [])
+    if not isinstance(actions, list):
+        return False
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        if str(action.get("type", "")) != "STRICT_REGRESSION":
+            return True
+    return False
+
+
+def _emit_operator_gate(
+    *,
+    registry_path_arg: str | None,
+    include_staging: bool,
+    include_dev: bool,
+    enforce_sla: bool,
+    days: int,
+    tail: int,
+    ledger_path: str,
+    as_of: datetime | None,
+    export_path: str | None,
+    n_tail: int,
+    as_json: bool,
+) -> int:
+    policy = build_policy(
+        include_staging=bool(include_staging),
+        include_dev=bool(include_dev),
+        enforce_sla=bool(enforce_sla),
+    )
+    strict_reasons = collect_strict_failures(registry_path_arg, policy, as_of=as_of)
+    strict_failed = len(strict_reasons) > 0
+
+    snapshot_payload = _build_report_snapshot_payload(
+        days=int(days),
+        tail=int(tail),
+        strict=True,
+        registry_path_arg=registry_path_arg,
+        as_of=as_of,
+        include_hints=True,
+        include_staging=bool(include_staging),
+        include_dev=bool(include_dev),
+        enforce_sla=bool(enforce_sla),
+        write=True,
+    )
+
+    diff_payload = snapshot_diff_from_ledger(
+        ledger=ledger_path,
+        a="prev",
+        b="latest",
+        tail=max(2, int(tail)),
+    )
+    regression_detected = False
+    if diff_payload.get("error") not in {"BAD_REF", "NO_LEDGER_ROWS"}:
+        regression_detected = _diff_has_regressions(diff_payload)
+
+    written_export: list[str] = []
+    if export_path:
+        bundle = export_bundle(
+            out_dir=export_path,
+            days=int(days),
+            tail=int(tail),
+            registry_path=registry_path_arg,
+            strict=True,
+            include_staging=bool(include_staging),
+            include_dev=bool(include_dev),
+            enforce_sla=bool(enforce_sla),
+            include_hints=True,
+            ledger_path=ledger_path,
+            n_tail=int(n_tail),
         )
-    return 0
+        written_export = [str(p) for p in bundle]
+
+    exit_code = 0
+    if strict_failed and regression_detected:
+        exit_code = 4
+    elif strict_failed:
+        exit_code = 2
+    elif regression_detected:
+        exit_code = 3
+
+    out = {
+        "operator_version": "1.0",
+        "strict_failed": strict_failed,
+        "regression_detected": regression_detected,
+        "exit_code": exit_code,
+        "strict_reasons": strict_reasons,
+        "snapshot": {
+            "written": bool(snapshot_payload.get("written", False)),
+            "path": snapshot_payload.get("path"),
+            "ts": (
+                snapshot_payload.get("snapshot", {}).get("ts")
+                if isinstance(snapshot_payload.get("snapshot"), dict)
+                else None
+            ),
+            "as_of": snapshot_payload.get("as_of"),
+        },
+        "diff": diff_payload.get("diff") if "diff" in diff_payload else diff_payload,
+        "export_written": written_export,
+    }
+    if as_json:
+        print(json.dumps(out, indent=2, sort_keys=True))
+    else:
+        print(json.dumps(out, indent=2, sort_keys=True))
+    return exit_code
 
 
 def _emit_report_graph(as_json: bool, registry_path_arg: str | None) -> int:
@@ -749,13 +905,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.report_command == "snapshot":
             # Subcommand mode: tail/stats/run (Full-A)
             if getattr(args, "snapshot_command", None) == "diff":
+                try:
+                    diff_as_of = _parse_as_of(getattr(args, "as_of", None))
+                except ValueError as exc:
+                    print(str(exc))
+                    return 1
                 payload = snapshot_diff_from_ledger(
                     ledger=args.ledger,
                     a=args.a,
                     b=args.b,
                     tail=args.tail,
+                    as_of=diff_as_of,
                 )
-                if args.json:
+                if getattr(args, "pretty", False):
+                    print(render_snapshot_diff_pretty(payload))
+                elif args.json:
                     print(json.dumps(payload, indent=2, sort_keys=True))
                 else:
                     print(json.dumps(payload, indent=2, sort_keys=True))
@@ -841,6 +1005,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 n_tail=int(args.n_tail),
             )
         parser.error("Unknown report command.")
+
+    if args.command == "operator":
+        bootstrap_repo()
+        if args.operator_command == "gate":
+            try:
+                gate_as_of = _parse_as_of(getattr(args, "as_of", None))
+            except ValueError as exc:
+                print(str(exc))
+                return 1
+            return _emit_operator_gate(
+                registry_path_arg=args.registry,
+                include_staging=bool(args.include_staging),
+                include_dev=bool(args.include_dev),
+                enforce_sla=bool(args.enforce_sla),
+                days=int(args.days),
+                tail=int(args.tail),
+                ledger_path=str(args.ledger),
+                as_of=gate_as_of,
+                export_path=args.export_path,
+                n_tail=int(args.n_tail),
+                as_json=bool(args.json),
+            )
+        parser.error("Unknown operator command.")
 
 
     if args.command == "failcase":

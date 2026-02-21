@@ -275,11 +275,58 @@ def test_report_health_strict_enforce_sla_blocks_when_enabled(tmp_path: Path, mo
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert payload["policy"]["enforce_sla"] is True
+    assert isinstance(payload.get("strict_failure"), dict)
+    assert payload["strict_failure"]["schema_version"] == "1.0"
+    assert any(
+        r.get("reason_code") == "SLA_BREACH"
+        for r in payload["strict_failure"].get("reasons", [])
+        if isinstance(r, dict)
+    )
 
     err_payload = json.loads(captured.err.strip().splitlines()[-1])
     assert err_payload["strict_failed"] is True
     assert err_payload["policy"]["enforce_sla"] is True
     assert any(r.get("reason_code") == "SLA_BREACH" for r in err_payload["reasons"])
+
+
+def test_report_health_strict_passes_with_null_strict_failure(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    bootstrap_repo()
+
+    _write_contract_compliant(tmp_path, "prod-sys")
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    logs = tmp_path / "data" / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / "prod-sys-events.jsonl").write_text(
+        json.dumps({"ts": now, "type": "x", "system_id": "prod-sys"}) + "\n",
+        encoding="utf-8",
+    )
+
+    _write_registry(
+        tmp_path,
+        [
+            {
+                "system_id": "prod-sys",
+                "contracts_glob": "data/contracts/prod-sys-*.json",
+                "events_glob": "data/logs/prod-sys-events.jsonl",
+                "is_sample": False,
+                "tier": "prod",
+            }
+        ],
+    )
+
+    snaps = tmp_path / "data" / "snapshots"
+    snaps.mkdir(parents=True, exist_ok=True)
+    (snaps / "health_history.jsonl").write_text(
+        json.dumps({"ts": now, "status": "green", "score_total": 95.0, "violations": []}) + "\n",
+        encoding="utf-8",
+    )
+
+    rc = app_main(["report", "health", "--strict", "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "strict_failure" in payload
+    assert payload["strict_failure"] is None
 
 
 def test_enforce_sla_blocks_only_when_enabled(tmp_path: Path, monkeypatch) -> None:

@@ -285,6 +285,73 @@ def test_report_snapshot_diff_command_outputs_json(tmp_path: Path, monkeypatch, 
             "details": {"threshold_days": 7},
         }
     ]
+    assert payload["diff"]["top_actions"][0]["type"] == "STRICT_REGRESSION"
+
+
+def test_report_snapshot_diff_as_of_and_pretty_mode(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    bootstrap_repo()
+
+    ledger = tmp_path / "data" / "snapshots" / "report_snapshot_history.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    rows = [
+        {
+            "ts": "2026-02-16T12:01:00Z",
+            "as_of": "2026-02-16T12:00:00Z",
+            "snapshot": {"ts": "2026-02-16T12:01:00Z", "as_of": "2026-02-16T12:00:00Z", "systems": [{"system_id": "x", "status": "green"}]},
+        },
+        {
+            "ts": "2026-02-16T12:21:00Z",
+            "as_of": "2026-02-16T12:20:00Z",
+            "snapshot": {"ts": "2026-02-16T12:21:00Z", "as_of": "2026-02-16T12:20:00Z", "systems": [{"system_id": "x", "status": "yellow"}]},
+        },
+        {
+            "ts": "2026-02-16T13:01:00Z",
+            "as_of": "2026-02-16T13:00:00Z",
+            "snapshot": {"ts": "2026-02-16T13:01:00Z", "as_of": "2026-02-16T13:00:00Z", "systems": [{"system_id": "x", "status": "red"}]},
+        },
+    ]
+    ledger.write_text("\n".join(json.dumps(r, sort_keys=True) for r in rows) + "\n", encoding="utf-8")
+
+    rc = app_main(
+        [
+            "report",
+            "snapshot",
+            "diff",
+            "--json",
+            "--ledger",
+            str(ledger),
+            "--a",
+            "prev",
+            "--b",
+            "latest",
+            "--as-of",
+            "2026-02-16T12:30:00Z",
+        ]
+    )
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["diff"]["a"]["ts"] == "2026-02-16T12:01:00Z"
+    assert payload["diff"]["b"]["ts"] == "2026-02-16T12:21:00Z"
+
+    rc2 = app_main(
+        [
+            "report",
+            "snapshot",
+            "diff",
+            "--pretty",
+            "--ledger",
+            str(ledger),
+            "--a",
+            "prev",
+            "--b",
+            "latest",
+        ]
+    )
+    assert rc2 == 0
+    out = capsys.readouterr().out
+    assert "Snapshot Diff" in out
+    assert "Top Actions" in out
 
 
 def test_report_health_missing_history_exits_zero(tmp_path: Path, monkeypatch, capsys) -> None:

@@ -355,6 +355,7 @@ with st.sidebar:
         tail = st.number_input("Tail (history lines)", min_value=1, max_value=200000, value=2000, step=100)
     with colr3:
         include_hints = st.checkbox("Include hints", value=True)
+    as_of_input = st.text_input("As-of (optional ISO8601)", value="")
 
     st.divider()
     st.header("Quick actions")
@@ -368,6 +369,7 @@ if include_dev and not include_staging:
 # Enforce enforce_sla only with strict (but keep UI state visible)
 effective_enforce_sla = bool(strict and enforce_sla)
 hide_samples = not bool(show_samples)
+as_of_value = as_of_input.strip() or None
 
 policy = PolicyFlags(
     strict=bool(strict),
@@ -388,6 +390,7 @@ with left:
         cli_python=_python_bin(),
         registry_path=registry_path.strip() or None,
         policy=policy,
+        as_of=as_of_value,
         as_json=True,
     )
     res_strict = run_cli(strict_args, timeout_sec=30)
@@ -408,6 +411,7 @@ with right:
         days=int(days),
         tail=int(tail),
         include_hints=bool(include_hints),
+        as_of=as_of_value,
         as_json=True,
     )
     res_report = run_cli(report_args, timeout_sec=60)
@@ -594,6 +598,7 @@ if mode in ("Read", "Ops", "Dev"):
                     a=diff_a.strip() or "prev",
                     b=diff_b.strip() or "latest",
                     registry=registry_path.strip() or None,
+                    as_of=as_of_value,
                     cli_python=_python_bin(),
                 ),
                 timeout_sec=30,
@@ -602,6 +607,12 @@ if mode in ("Read", "Ops", "Dev"):
             diff_payload = _safe_json_loads((res_diff.stdout or "").strip())
             diff_obj = diff_payload.get("diff", {}) if isinstance(diff_payload, dict) else {}
             if isinstance(diff_obj, dict):
+                st.write("Top actions")
+                top_actions = diff_obj.get("top_actions", [])
+                if isinstance(top_actions, list) and top_actions:
+                    st.dataframe(top_actions, width="stretch")
+                else:
+                    st.info("No actionable regressions detected.")
                 st.write("Status changes")
                 st.dataframe(diff_obj.get("system_status_changes", []), width="stretch")
                 st.write("New strict reasons")
@@ -624,6 +635,7 @@ if mode in ("Read", "Ops", "Dev"):
                     "include_dev": bool(include_dev),
                     "strict": bool(strict),
                     "enforce_sla": bool(effective_enforce_sla),
+                    "as_of": as_of_value,
                 },
             }
         )

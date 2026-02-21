@@ -14,6 +14,10 @@
 - `python -m app.main report snapshot stats --json --ledger data/snapshots/report_snapshot_history.jsonl --days 7`
 - `python -m app.main report snapshot run --every 1 --count 3 --json`
 - `python -m app.main report snapshot diff --json --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest`
+- `python -m app.main report snapshot diff --pretty --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest`
+- `python -m app.main report snapshot diff --json --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest --as-of 2026-02-16T12:00:00Z`
+- `python -m app.main operator gate`
+- `python -m app.main operator gate --registry /tmp/codex-kernel-failcase/data/registry/systems.json --enforce-sla`
 - `python -m app.main report health --no-hints`
 - `python -m app.main validate`
 - `python -m app.main failcase create --path /tmp/codex-kernel-failcase --mode sla-breach`
@@ -26,6 +30,8 @@
 - `0` success
 - `1` validation/usage failure
 - `2` strict governance failure (`--strict` only)
+- `3` regression detected (`operator gate`)
+- `4` strict failure + regression detected (`operator gate`)
 
 ## Examples
 ```bash
@@ -35,6 +41,8 @@ python -m app.main report snapshot tail --json --ledger data/snapshots/report_sn
 python -m app.main report snapshot stats --json --ledger data/snapshots/report_snapshot_history.jsonl --days 7
 python -m app.main report snapshot run --every 1 --count 3 --json
 python -m app.main report snapshot diff --json --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest
+python -m app.main report snapshot diff --pretty --ledger data/snapshots/report_snapshot_history.jsonl --a prev --b latest
+python -m app.main operator gate --json
 python -m app.main validate
 python -m app.main system add ops-core "Ops Core"
 python -m app.main log ops-core status_update
@@ -45,3 +53,8 @@ python -m app.main log ops-core status_update
 - `prev` / `previous`: entry before latest
 - `<int>`: index into tail rows (supports negatives, Python style)
 - `<iso ts>`: exact or equivalent ISO timestamp instant
+
+## Operator Gate
+- Command: `python -m app.main operator gate`
+- Flow: strict evaluation, snapshot write, `prev -> latest` diff, optional export bundle
+- Optional: `--export-path <dir>` to write deterministic bundle artifacts

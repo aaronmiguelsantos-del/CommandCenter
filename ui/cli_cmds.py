@@ -34,6 +34,7 @@ def build_health_all_cmd(
     cli_python: str,
     registry_path: Optional[str],
     policy: PolicyFlags,
+    as_of: Optional[str] = None,
     as_json: bool = True,
 ) -> List[str]:
     cmd = _base_python(cli_python) + ["health", "--all"]
@@ -54,6 +55,8 @@ def build_health_all_cmd(
 
     if policy.hide_samples:
         cmd.append("--hide-samples")
+    if as_of:
+        cmd += ["--as-of", as_of]
 
     return cmd
 
@@ -66,6 +69,7 @@ def build_report_health_cmd(
     days: int = 30,
     tail: int = 2000,
     include_hints: bool = True,
+    as_of: Optional[str] = None,
     as_json: bool = True,
 ) -> List[str]:
     cmd = _base_python(cli_python) + ["report", "health", "--days", str(days), "--tail", str(tail)]
@@ -85,6 +89,8 @@ def build_report_health_cmd(
 
     if not include_hints:
         cmd.append("--no-hints")
+    if as_of:
+        cmd += ["--as-of", as_of]
 
     return cmd
 
@@ -190,10 +196,11 @@ def build_report_snapshot_diff_cmd(
     a: str,
     b: str,
     registry: str | None = None,
+    as_of: str | None = None,
     *,
     cli_python: str = "python",
 ) -> list[str]:
-    return (
+    cmd = (
         _base_python(cli_python)
         + ["report", "snapshot"]
         + _snapshot_policy_args(flags, registry)
@@ -210,3 +217,6 @@ def build_report_snapshot_diff_cmd(
             b,
         ]
     )
+    if as_of:
+        cmd += ["--as-of", as_of]
+    return cmd

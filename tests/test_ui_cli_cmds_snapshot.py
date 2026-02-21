@@ -48,3 +48,16 @@ def test_snapshot_diff_cmd_includes_ledger_tail_and_refs() -> None:
     assert "--a" in cmd and "prev" in cmd
     assert "--b" in cmd and "latest" in cmd
     assert "--strict" not in cmd
+
+
+def test_snapshot_diff_cmd_can_include_as_of() -> None:
+    flags = SnapshotFlags(ledger="data/snapshots/report_snapshot_history.jsonl", tail=999, strict=False)
+    cmd = build_report_snapshot_diff_cmd(
+        flags,
+        a="prev",
+        b="latest",
+        as_of="2026-02-16T12:00:00Z",
+        cli_python=".venv/bin/python",
+    )
+    assert "--as-of" in cmd
+    assert "2026-02-16T12:00:00Z" in cmd
