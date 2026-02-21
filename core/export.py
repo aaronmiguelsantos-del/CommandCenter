@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,12 @@ STRICT_FAILURE_SCHEMA_VERSION = "1.0"
 
 def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    h.update(path.read_bytes())
+    return h.hexdigest()
 
 
 def _blocked_tiers(include_staging: bool, include_dev: bool) -> set[str]:
@@ -192,6 +199,8 @@ def export_bundle(
             written.append(target)
 
     meta_path = out / "bundle_meta.json"
+    artifacts = sorted([p.name for p in [*written, meta_path]])
+    checksums = {name: _sha256_file(out / name) for name in sorted([p.name for p in written])}
     meta = {
         "bundle_version": "1.0",
         "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -210,7 +219,9 @@ def export_bundle(
             "ledger_path": ledger_path,
             "n_tail": int(n_tail),
         },
-        "files": [p.name for p in written],
+        "artifacts": artifacts,
+        "checksums": checksums,
+        "files": artifacts,
     }
     _write_json(meta_path, meta)
     written.append(meta_path)

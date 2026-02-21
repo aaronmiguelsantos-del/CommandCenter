@@ -642,33 +642,6 @@ def _emit_operator_gate(
     if diff_payload.get("error") not in {"BAD_REF", "NO_LEDGER_ROWS"}:
         regression_detected = _diff_has_regressions(diff_payload)
 
-    written_export: list[str] = []
-    if export_path:
-        bundle = export_bundle(
-            out_dir=export_path,
-            days=int(days),
-            tail=int(tail),
-            registry_path=registry_path_arg,
-            strict=bool(strict),
-            include_staging=bool(include_staging),
-            include_dev=bool(include_dev),
-            enforce_sla=bool(enforce_sla),
-            include_hints=True,
-            ledger_path=ledger_path,
-            n_tail=int(n_tail),
-            extra_files={
-                "operator_gate.json": {
-                    "command": "operator_gate",
-                    "strict_failed": strict_failed,
-                    "regression_detected": regression_detected,
-                },
-                "snapshot_diff.json": diff_payload.get("diff") if isinstance(diff_payload.get("diff"), dict) else diff_payload,
-                "snapshot_latest.json": snapshot_payload,
-                **({"strict_failure.json": strict_payload} if strict_payload is not None else {}),
-            },
-        )
-        written_export = [str(p) for p in bundle]
-
     exit_code = 0
     if strict_failed and regression_detected:
         exit_code = 4
@@ -679,8 +652,10 @@ def _emit_operator_gate(
 
     diff_obj = diff_payload.get("diff") if isinstance(diff_payload.get("diff"), dict) else {}
     top_actions = diff_obj.get("top_actions", []) if isinstance(diff_obj, dict) else []
+    written_export: list[str] = []
     out: dict[str, Any] = {
         "command": "operator_gate",
+        "schema_version": "1.0",
         "operator_version": "1.0",
         "exit_code": exit_code,
         "strict_failed": strict_failed,
@@ -716,6 +691,32 @@ def _emit_operator_gate(
     }
     if strict_payload is not None:
         out["strict_failure"] = strict_payload
+
+    if export_path:
+        bundle = export_bundle(
+            out_dir=export_path,
+            days=int(days),
+            tail=int(tail),
+            registry_path=registry_path_arg,
+            strict=bool(strict),
+            include_staging=bool(include_staging),
+            include_dev=bool(include_dev),
+            enforce_sla=bool(enforce_sla),
+            include_hints=True,
+            ledger_path=ledger_path,
+            n_tail=int(n_tail),
+            extra_files={
+                "operator_gate.json": out,
+                "snapshot_diff.json": diff_obj if isinstance(diff_obj, dict) else diff_payload,
+                "snapshot_latest.json": snapshot_payload,
+                **({"strict_failure.json": strict_payload} if strict_payload is not None else {}),
+            },
+        )
+        written_export = [str(p) for p in bundle]
+        artifacts = out.get("artifacts")
+        if isinstance(artifacts, dict):
+            artifacts["export_written"] = written_export
+
     if as_json:
         print(json.dumps(out, indent=2, sort_keys=True))
     else:

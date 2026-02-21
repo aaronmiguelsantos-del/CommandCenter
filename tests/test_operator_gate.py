@@ -36,21 +36,32 @@ def test_operator_gate_export_writes_gate_artifacts(tmp_path: Path) -> None:
     p = _run(["operator", "gate", "--json", "--export-path", str(export_dir)])
     assert p.returncode in (0, 2, 3, 4)
 
-    # Contract-lite for v2.7.x -> v2.8: pin the new files.
-    assert (export_dir / "bundle_meta.json").exists()
-    assert (export_dir / "operator_gate.json").exists()
-    assert (export_dir / "snapshot_diff.json").exists()
-    assert (export_dir / "snapshot_latest.json").exists()
+    required = {
+        "bundle_meta.json",
+        "report_health.json",
+        "graph.json",
+        "snapshot_stats.json",
+        "snapshot_tail.json",
+        "operator_gate.json",
+        "snapshot_diff.json",
+        "snapshot_latest.json",
+    }
+    actual = {p.name for p in export_dir.iterdir() if p.is_file()}
+    assert actual == required
 
     gate_payload = json.loads((export_dir / "operator_gate.json").read_text(encoding="utf-8"))
+    assert gate_payload.get("schema_version") == "1.0"
     assert gate_payload.get("command") == "operator_gate"
+    assert gate_payload.get("exit_code") in (0, 2, 3, 4)
+    policy = gate_payload.get("policy", {})
+    assert isinstance(policy, dict)
+    for k in ["registry", "hide_samples", "strict", "enforce_sla", "as_of"]:
+        assert k in policy
 
     diff_payload = json.loads((export_dir / "snapshot_diff.json").read_text(encoding="utf-8"))
-    assert "top_actions" in diff_payload
+    assert isinstance(diff_payload.get("top_actions"), list)
 
     meta = json.loads((export_dir / "bundle_meta.json").read_text(encoding="utf-8"))
-    files = meta.get("files", [])
-    assert isinstance(files, list)
-    assert "operator_gate.json" in files
-    assert "snapshot_diff.json" in files
-    assert "snapshot_latest.json" in files
+    artifacts = meta.get("artifacts", [])
+    assert isinstance(artifacts, list)
+    assert artifacts == sorted(required)
