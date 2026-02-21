@@ -220,10 +220,16 @@ def load_history(tail: int = 2000, path: str | Path | None = None) -> list[dict[
     return out
 
 
-def _current_system_health(registry_path: str | None) -> list[dict[str, Any]]:
+def _current_system_health(registry_path: str | None, *, as_of: datetime | None = None) -> list[dict[str, Any]]:
     systems: list[dict[str, Any]] = []
     for spec in load_registry(registry_path):
-        payload = compute_health_for_system(spec.system_id, spec.contracts_glob, spec.events_glob, registry_path=registry_path)
+        payload = compute_health_for_system(
+            spec.system_id,
+            spec.contracts_glob,
+            spec.events_glob,
+            registry_path=registry_path,
+            as_of=as_of,
+        )
         systems.append(
             {
                 "system_id": spec.system_id,
@@ -236,12 +242,12 @@ def _current_system_health(registry_path: str | None) -> list[dict[str, Any]]:
     return systems
 
 
-def _system_recency(registry_path: str | None) -> list[dict[str, Any]]:
-    now = datetime.now(UTC)
+def _system_recency(registry_path: str | None, *, as_of: datetime | None = None) -> list[dict[str, Any]]:
+    now = as_of.astimezone(UTC) if as_of is not None else datetime.now(UTC)
     recency: list[dict[str, Any]] = []
 
     for spec in load_registry(registry_path):
-        last = last_event_ts_from_glob(spec.events_glob, registry_path=registry_path)
+        last = last_event_ts_from_glob(spec.events_glob, registry_path=registry_path, as_of=as_of)
         days = 999999 if last is None else max(0, int((now - last).total_seconds() // 86400))
         recency.append(
             {
@@ -527,9 +533,12 @@ def compute_report(
     history_path: str | Path | None = None,
     include_hints: bool = True,
     strict_policy: dict[str, Any] | None = None,
+    as_of: datetime | None = None,
 ) -> dict[str, Any]:
     loaded = load_history(tail=tail, path=history_path)
-    now = datetime.now(UTC)
+    now = as_of.astimezone(UTC) if as_of is not None else _now_utc().astimezone(UTC)
+    if as_of is not None:
+        loaded = [row for row in loaded if (ts := _parse_ts(str(row.get("ts", "")))) is not None and ts <= now]
     cutoff = now - timedelta(days=max(0, int(days)))
 
     analyzed: list[dict[str, Any]] = []
@@ -541,7 +550,7 @@ def compute_report(
         analyzed = loaded
 
     latest = loaded[-1] if loaded else {}
-    current_systems = _current_system_health(registry_path)
+    current_systems = _current_system_health(registry_path, as_of=as_of)
     reg_path = registry_file_path(registry_path)
     registry_obj: Any = {"systems": []}
     if reg_path.exists():
@@ -562,7 +571,7 @@ def compute_report(
         }
         for s in systems
     ]
-    recency_rows = _system_recency(registry_path)
+    recency_rows = _system_recency(registry_path, as_of=as_of)
     current_systems = _augment_current_systems(current_systems, systems, recency_rows, as_of=now)
     now_non_sample = _aggregate_non_sample(current_systems)
     strict_ready_now = bool(now_non_sample["strict_ready_now"])
@@ -626,7 +635,7 @@ def compute_report(
             if str(hint.get("severity", "")).lower() == "high" and hint.get("systems"):
                 hint["why"] = str(hint.get("why", "")) + _impact_suffix(g, list(hint.get("systems", [])))
 
-        now_utc = _now_utc()
+        now_utc = now
         contributors = _drift_contributors(registry_rows, now_utc=now_utc, registry_path=registry_path)
         drift_hint = build_drift_hint(
             points=trend_points,
@@ -728,6 +737,8 @@ def compute_report(
         "include_dev": bool(policy.get("include_dev", False)),
         "enforce_sla": bool(policy.get("enforce_sla", False)),
     }
+    if as_of is not None:
+        report["as_of"] = _iso_utc(now)
     return report
 
 
@@ -802,7 +813,10 @@ def format_text(report: dict[str, Any], days: int) -> str:
                 f"- score_total: {trend['score_total']['start_score']:.2f} -> {trend['score_total']['end_score']:.2f} "
                 f"(D {trend['score_total']['delta']:+.2f}) | avg: {trend['rolling_avg_score']:.2f}"
             ),
-            _trend_drift_line(trend, _now_utc()),
+            _trend_drift_line(
+                trend,
+                _parse_ts(str(report.get("as_of"))) or _now_utc(),
+            ),
         ]
     )
     if summary.get("top_drift_24h"):

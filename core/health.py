@@ -5,8 +5,10 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from core.events import read_events_from_glob
 from core.globs import iter_glob
 from core.models import Health
+from core.registry import registry_path as default_registry_path
 from core.storage import PRIMITIVES_DIR, SCHEMAS_DIR, list_contracts, list_event_rows, read_jsonl
 
 
@@ -62,14 +64,26 @@ def _list_count(value: Any) -> int:
     return 0
 
 
-def _read_contracts_from_glob(pattern: str, registry_path: str | Path | None = None) -> list[dict[str, Any]]:
+def _read_contracts_from_glob(
+    pattern: str,
+    system_id: str,
+    *,
+    registry_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for path in iter_glob(pattern, registry_path or "data/registry/systems.json"):
+    reg_path = default_registry_path(registry_path)
+    for path in iter_glob(pattern, reg_path):
         if not path.is_file():
             continue
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
         if isinstance(payload, dict):
+            if str(payload.get("system_id", "")).strip() != system_id:
+                continue
             out.append(payload)
+    out.sort(key=lambda o: (str(o.get("contract_id", "")), json.dumps(o, sort_keys=True)))
     return out
 
 
@@ -80,43 +94,51 @@ def _read_events_from_glob(
     registry_path: str | Path | None = None,
     as_of: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for path in iter_glob(pattern, registry_path or "data/registry/systems.json"):
+    reg_path = default_registry_path(registry_path)
+    rows = read_events_from_glob(pattern, registry_path=reg_path, as_of=as_of)
+
+    # Backward-compatible fallback: lines missing ts are treated as current/as_of timestamp.
+    fallback_dt = as_of.astimezone(timezone.utc) if as_of is not None else datetime.now(timezone.utc)
+    fallback_ts = fallback_dt.isoformat().replace("+00:00", "Z")
+    for path in iter_glob(pattern, reg_path):
         if not path.is_file():
             continue
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
-            payload = json.loads(line)
-            if isinstance(payload, dict):
-                if not payload.get("system_id"):
-                    payload["system_id"] = system_id
-                if not payload.get("ts"):
-                    payload["ts"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-                rows.append(payload)
+            try:
+                payload = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            ts = payload.get("ts")
+            if isinstance(ts, str) and ts.strip():
+                continue
+            patched = dict(payload)
+            patched["ts"] = fallback_ts
+            if not patched.get("system_id"):
+                patched["system_id"] = system_id
+            rows.append(patched)
 
-    if as_of is None:
-        return rows
-
-    as_of_utc = as_of.astimezone(timezone.utc)
     filtered: list[dict[str, Any]] = []
     for r in rows:
-        ts = r.get("ts")
-        if not ts:
-            continue
-        try:
-            dt = _parse_iso_utc(str(ts))
-        except Exception:
-            # Strict and deterministic: ignore unparsable events for recency checks.
-            continue
-        if dt <= as_of_utc:
+        sid = r.get("system_id")
+        if sid is None or str(sid) == system_id:
             filtered.append(r)
+    filtered.sort(
+        key=lambda o: (
+            (_parse_iso_utc(str(o.get("ts", ""))).isoformat() if o.get("ts") else ""),
+            json.dumps(o, sort_keys=True),
+        )
+    )
     return filtered
 
 
 def _count_events_lines_from_glob(pattern: str, registry_path: str | Path | None = None) -> int:
     count = 0
-    for path in iter_glob(pattern, registry_path or "data/registry/systems.json"):
+    reg_path = default_registry_path(registry_path)
+    for path in iter_glob(pattern, reg_path):
         if not path.is_file():
             continue
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -289,13 +311,13 @@ def compute_health_for_system(
     registry_path: str | Path | None = None,
     as_of: datetime | None = None,
 ) -> dict[str, Any]:
-    contract_rows = _read_contracts_from_glob(contracts_glob, registry_path=registry_path)
-    for row in contract_rows:
-        if not row.get("system_id"):
-            row["system_id"] = system_id
+    contract_rows = _read_contracts_from_glob(
+        contracts_glob,
+        system_id,
+        registry_path=registry_path,
+    )
 
     event_rows = _read_events_from_glob(events_glob, system_id, registry_path=registry_path, as_of=as_of)
-    _ = _count_events_lines_from_glob(events_glob, registry_path=registry_path)
 
     discipline = _compute_discipline(contract_rows, event_rows, as_of=as_of)
     health_model = _score_health(
