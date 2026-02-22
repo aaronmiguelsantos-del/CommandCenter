@@ -1,9 +1,14 @@
-# Portfolio Gate — Acceptance (v3.3.x)
+# Portfolio Gate — Acceptance (v3.4.x)
 
 ## CLI (v3.3.x)
 Command:
 ```bash
 python -m app.main operator portfolio-gate --json --repos <repoA> <repoB>
+```
+
+Repo-map mode:
+```bash
+python -m app.main operator portfolio-gate --json --repos-map data/portfolio/repos.json
 ```
 
 Must:
@@ -16,6 +21,10 @@ Must:
   - `policy`
   - `repos[]` (deterministically ordered)
   - `top_actions[]` (deterministically ordered)
+
+Partial failure semantics:
+- Each repo entry includes `repo_status: ok|error` and optional error fields.
+- Missing required repos force exit `3` unless `--allow-missing` is set.
 
 ### Parallelism
 Must preserve determinism with parallel execution:

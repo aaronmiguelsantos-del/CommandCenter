@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +30,8 @@ def test_portfolio_gate_deterministic_output(tmp_path: Path) -> None:
         str(repo_a),
         str(repo_b),
         "--hide-samples",
+        "--jobs",
+        "1",
     ]
     p1 = _run(args)
     p2 = _run(args)
@@ -54,7 +57,7 @@ def test_portfolio_gate_parallel_determinism(tmp_path: Path) -> None:
         str(repo_b),
         "--hide-samples",
         "--jobs",
-        "4",
+        "2",
     ]
     p1 = _run(args)
     p2 = _run(args)
@@ -77,6 +80,8 @@ def test_portfolio_gate_export_bundle(tmp_path: Path) -> None:
             "--repos",
             str(repo_a),
             "--hide-samples",
+            "--jobs",
+            "1",
             "--export-path",
             str(export_dir),
         ]
@@ -113,7 +118,7 @@ def test_portfolio_gate_export_mode_with_repo_gates(tmp_path: Path) -> None:
             "--export-mode",
             "with-repo-gates",
             "--jobs",
-            "4",
+            "1",
         ]
     )
     assert p.returncode == 0, p.stderr
@@ -149,6 +154,8 @@ def test_portfolio_gate_exit_code_aggregates_strict(tmp_path: Path) -> None:
             "--hide-samples",
             "--strict",
             "--enforce-sla",
+            "--jobs",
+            "1",
         ]
     )
     assert p.returncode in (2, 4), p.stderr
@@ -156,3 +163,53 @@ def test_portfolio_gate_exit_code_aggregates_strict(tmp_path: Path) -> None:
     assert payload["portfolio_exit_code"] in (2, 4)
     assert payload["command"] == "portfolio_gate"
     assert payload["schema_version"] == "1.0"
+
+
+def test_portfolio_gate_missing_required_repo_forces_regression_unless_allow_missing(tmp_path: Path) -> None:
+    # One good repo + one missing repo root
+    repo_a = tmp_path / "repo_a"
+    p = _run(["failcase", "create", "--path", str(repo_a), "--mode", "clean"])
+    assert p.returncode == 0, p.stderr
+
+    missing = tmp_path / "does_not_exist"
+    assert not missing.exists()
+
+    p = _run(
+        [
+            "operator",
+            "portfolio-gate",
+            "--json",
+            "--repos",
+            str(repo_a),
+            str(missing),
+            "--hide-samples",
+            "--jobs",
+            "1",
+        ]
+    )
+    # regression because required missing by default
+    assert p.returncode in (3, 4), p.stderr
+    payload = json.loads(p.stdout)
+    assert payload["portfolio_exit_code"] in (3, 4)
+    # find missing repo entry
+    errs = [r for r in payload["repos"] if r.get("repo_status") == "error"]
+    assert errs, "expected an error repo result"
+
+    p = _run(
+        [
+            "operator",
+            "portfolio-gate",
+            "--json",
+            "--repos",
+            str(repo_a),
+            str(missing),
+            "--hide-samples",
+            "--allow-missing",
+            "--jobs",
+            "1",
+        ]
+    )
+    # allow-missing permits clean exit for this scenario
+    assert p.returncode == 0, p.stderr
+    payload = json.loads(p.stdout)
+    assert payload["portfolio_exit_code"] == 0

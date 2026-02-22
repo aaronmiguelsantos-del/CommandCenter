@@ -180,6 +180,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Newline-delimited list of repo roots or registry paths (# comments allowed).",
     )
+    operator_portfolio_gate.add_argument(
+        "--repos-map",
+        default=None,
+        help="Repo map JSON (repo roots + owners + required). If omitted and no --repos/--repos-file provided, defaults to data/portfolio/repos.json when present.",
+    )
+    operator_portfolio_gate.add_argument(
+        "--allow-missing",
+        action="store_true",
+        help="Do not force regression exit when required repos are missing/unreadable; still record errors in output.",
+    )
     operator_portfolio_gate.add_argument("--hide-samples", action="store_true", help="Exclude sample systems.")
     operator_portfolio_gate.add_argument("--strict", action="store_true", help="Enable strict gating per repo.")
     operator_portfolio_gate.add_argument(
@@ -1195,6 +1205,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload, exit_code = run_portfolio_gate(
                 repos=args.repos,
                 repos_file=args.repos_file,
+                repos_map=args.repos_map,
+                allow_missing=bool(args.allow_missing),
                 hide_samples=bool(args.hide_samples),
                 strict=bool(args.strict),
                 enforce_sla=bool(args.enforce_sla),

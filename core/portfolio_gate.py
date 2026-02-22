@@ -5,22 +5,23 @@ import json
 import os
 import subprocess
 import sys
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, TypedDict
 
 
-# Phase 2 (v3.3.x) Portfolio Gate Contract
+# Portfolio Gate Contract
 PORTFOLIO_GATE_SCHEMA_VERSION = "1.0"
+REPOS_MAP_SCHEMA_VERSION = "1.0"
 
-_VALID_GATE_EXIT_CODES = {0, 2, 3, 4}
-_SEVERITY_RANK = {
-    "STRICT_REGRESSION": 1,
-    "STATUS_REGRESSION": 2,
-    "RISK_INCREASE": 3,
-    "NEW_HIGH_VIOLATIONS": 4,
-}
+
+class RepoMapEntry(TypedDict, total=False):
+    repo_id: str
+    path: str
+    owner: str
+    required: bool
+    notes: str
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,24 @@ class RepoSpec:
     repo_hash: str
     repo_root: str
     registry_path: str
+    owner: str
+    required: bool
+    notes: str
+
+
+# Error codes (portfolio-level typed failures)
+ERR_REPO_PATH_NOT_FOUND = "REPO_PATH_NOT_FOUND"
+ERR_REGISTRY_NOT_FOUND = "REGISTRY_NOT_FOUND"
+ERR_SUBPROCESS_FAILED = "SUBPROCESS_FAILED"
+ERR_INVALID_JSON = "INVALID_JSON"
+
+
+_SEVERITY_RANK = {
+    "STRICT_REGRESSION": 1,
+    "STATUS_REGRESSION": 2,
+    "RISK_INCREASE": 3,
+    "NEW_HIGH_VIOLATIONS": 4,
+}
 
 
 def _sha256(s: str) -> str:
@@ -80,19 +99,73 @@ def _infer_repo_root_and_registry(path_str: str) -> tuple[str, str]:
     return repo_root, registry
 
 
-def _repo_spec(path_str: str) -> RepoSpec:
+def _repo_hash(repo_root_abs: str) -> str:
+    return _sha256(repo_root_abs)[:12]
+
+
+def _repo_spec_from_path(path_str: str) -> RepoSpec:
     repo_root, registry = _infer_repo_root_and_registry(path_str)
     repo_root_abs = _normalize_path(repo_root)
     registry_abs = _normalize_path(registry)
 
     base = Path(repo_root_abs).name or repo_root_abs
-    h = _sha256(repo_root_abs)[:12]
 
     return RepoSpec(
         repo_id=base,
-        repo_hash=h,
+        repo_hash=_repo_hash(repo_root_abs),
         repo_root=repo_root_abs,
         registry_path=registry_abs,
+        owner="",
+        required=True,
+        notes="",
+    )
+
+
+def _load_repos_map(path: str) -> list[RepoMapEntry]:
+    p = Path(path).expanduser().resolve()
+    if not p.exists():
+        raise SystemExit(f"repos-map not found: {p}")
+
+    payload = json.loads(p.read_text(encoding="utf-8"))
+    if payload.get("schema_version") != REPOS_MAP_SCHEMA_VERSION:
+        raise SystemExit(
+            f"repos-map schema_version drift: {payload.get('schema_version')} != {REPOS_MAP_SCHEMA_VERSION}"
+        )
+
+    repos = payload.get("repos")
+    if not isinstance(repos, list):
+        raise SystemExit("repos-map invalid: expected top-level key 'repos' as list")
+
+    out: list[RepoMapEntry] = []
+    for r in repos:
+        if not isinstance(r, dict):
+            continue
+        entry: RepoMapEntry = {
+            "repo_id": str(r.get("repo_id", "")).strip(),
+            "path": str(r.get("path", "")).strip(),
+            "owner": str(r.get("owner", "")).strip(),
+            "required": bool(r.get("required", True)),
+            "notes": str(r.get("notes", "")).strip(),
+        }
+        if not entry["repo_id"] or not entry["path"]:
+            raise SystemExit("repos-map invalid: each repo must include repo_id and path")
+        out.append(entry)
+    return out
+
+
+def _spec_from_map_entry(entry: RepoMapEntry) -> RepoSpec:
+    repo_root, registry = _infer_repo_root_and_registry(entry["path"])
+    repo_root_abs = _normalize_path(repo_root)
+    registry_abs = _normalize_path(registry)
+
+    return RepoSpec(
+        repo_id=entry["repo_id"],
+        repo_hash=_repo_hash(repo_root_abs),
+        repo_root=repo_root_abs,
+        registry_path=registry_abs,
+        owner=entry.get("owner", "") or "",
+        required=bool(entry.get("required", True)),
+        notes=entry.get("notes", "") or "",
     )
 
 
@@ -131,6 +204,7 @@ def _stable_top_actions(actions: Any) -> list[dict[str, Any]]:
 def _stable_gate_payload(gate_payload: dict[str, Any], gate_exit_code: int) -> dict[str, Any]:
     strict_failed = bool(gate_payload.get("strict_failed", False)) or gate_exit_code in {2, 4}
     regression_detected = bool(gate_payload.get("regression_detected", False)) or gate_exit_code in {3, 4}
+
     return {
         "command": str(gate_payload.get("command", "operator_gate")),
         "schema_version": str(gate_payload.get("schema_version", "1.0")),
@@ -142,14 +216,61 @@ def _stable_gate_payload(gate_payload: dict[str, Any], gate_exit_code: int) -> d
     }
 
 
+def _base_repo_result(spec: RepoSpec) -> dict[str, Any]:
+    return {
+        "repo": {
+            "repo_id": spec.repo_id,
+            "repo_hash": spec.repo_hash,
+            "repo_root": spec.repo_root,
+            "registry_path": spec.registry_path,
+            "owner": spec.owner,
+            "required": bool(spec.required),
+            "notes": spec.notes,
+        },
+        "repo_status": "ok",
+        "error_code": None,
+        "error_message": None,
+        "exit_code": 0,
+        "gate": {},
+        "stderr": "",
+    }
+
+
+def _error_repo_result(spec: RepoSpec, *, code: str, msg: str) -> dict[str, Any]:
+    rr = _base_repo_result(spec)
+    rr["repo_status"] = "error"
+    rr["error_code"] = code
+    rr["error_message"] = msg
+    rr["exit_code"] = 1
+    rr["gate"] = {}
+    rr["stderr"] = ""
+    return rr
+
+
 def _run_operator_gate_for_repo(
     spec: RepoSpec,
     *,
     hide_samples: bool,
     strict: bool,
     enforce_sla: bool,
-    as_of: str | None,
+    as_of: Optional[str],
 ) -> dict[str, Any]:
+    # Preflight: repo root exists
+    if not Path(spec.repo_root).exists():
+        return _error_repo_result(
+            spec,
+            code=ERR_REPO_PATH_NOT_FOUND,
+            msg=f"repo_root not found: {spec.repo_root}",
+        )
+
+    # Preflight: registry exists
+    if not Path(spec.registry_path).exists():
+        return _error_repo_result(
+            spec,
+            code=ERR_REGISTRY_NOT_FOUND,
+            msg=f"registry not found: {spec.registry_path}",
+        )
+
     cmd = [
         sys.executable,
         "-m",
@@ -181,48 +302,56 @@ def _run_operator_gate_for_repo(
             text=True,
             env=env,
         )
-    except Exception as exc:
-        return {
-            "repo": {
-                "repo_id": spec.repo_id,
-                "repo_hash": spec.repo_hash,
-                "repo_root": spec.repo_root,
-                "registry_path": spec.registry_path,
-            },
-            "exit_code": 1,
-            "gate": _stable_gate_payload({}, 1),
-            "stderr": f"RUN_ERROR: {type(exc).__name__}: {exc}",
-        }
+    except Exception as e:
+        return _error_repo_result(spec, code=ERR_SUBPROCESS_FAILED, msg=str(e))
 
     stdout = (p.stdout or "").strip()
+    stderr = (p.stderr or "").strip()
+
     gate_payload: dict[str, Any] = {}
     if stdout:
         try:
             decoded = json.loads(stdout)
             if isinstance(decoded, dict):
                 gate_payload = decoded
-        except Exception:
-            gate_payload = {}
+        except json.JSONDecodeError as e:
+            rr = _error_repo_result(spec, code=ERR_INVALID_JSON, msg=f"invalid json stdout: {e}")
+            rr["exit_code"] = int(p.returncode)
+            rr["stderr"] = stderr
+            return rr
 
-    return {
-        "repo": {
-            "repo_id": spec.repo_id,
-            "repo_hash": spec.repo_hash,
-            "repo_root": spec.repo_root,
-            "registry_path": spec.registry_path,
-        },
-        "exit_code": int(p.returncode),
-        "gate": _stable_gate_payload(gate_payload, int(p.returncode)),
-        "stderr": (p.stderr or "").strip(),
-    }
+    rr = _base_repo_result(spec)
+    rr["exit_code"] = int(p.returncode)
+    rr["gate"] = _stable_gate_payload(gate_payload, int(p.returncode))
+    rr["stderr"] = stderr
+    return rr
 
 
-def _portfolio_exit_code(repo_results: list[dict[str, Any]]) -> int:
-    if any(int(r.get("exit_code", 1)) not in _VALID_GATE_EXIT_CODES for r in repo_results):
-        return 1
+def _sorted_repo_results(repo_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Deterministic output ordering (independent of parallel completion order)
+    def k(r: dict[str, Any]) -> tuple[str, str, str]:
+        repo = r.get("repo") or {}
+        return (str(repo.get("repo_id", "")), str(repo.get("repo_hash", "")), str(repo.get("repo_root", "")))
 
+    return sorted(repo_results, key=k)
+
+
+def _portfolio_exit_code(
+    repo_results: list[dict[str, Any]],
+    *,
+    allow_missing: bool,
+) -> int:
     strict_failed_any = False
     regression_any = False
+
+    # Missing required repos count as regression unless allow_missing
+    for r in repo_results:
+        repo = r.get("repo") or {}
+        required = bool(repo.get("required", True))
+        status = str(r.get("repo_status", "ok"))
+        if required and status == "error" and not allow_missing:
+            regression_any = True
+
     for r in repo_results:
         gate = r.get("gate") or {}
         if bool(gate.get("strict_failed", False)):
@@ -246,7 +375,7 @@ def _merge_top_actions(repo_results: list[dict[str, Any]]) -> list[dict[str, Any
         repo_id = str(repo.get("repo_id", ""))
         repo_hash = str(repo.get("repo_hash", ""))
         gate = rr.get("gate") or {}
-        for a in gate.get("top_actions") or []:
+        for a in (gate.get("top_actions") or []):
             if not isinstance(a, dict):
                 continue
             aa = dict(a)
@@ -274,170 +403,134 @@ def _merge_top_actions(repo_results: list[dict[str, Any]]) -> list[dict[str, Any
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    with path.open("w", encoding="utf-8") as f:
+        f.write(json.dumps(payload, sort_keys=True, indent=2))
+        f.write("\n")
 
 
 def _write_bundle_meta(export_dir: Path, artifacts: list[str]) -> None:
     _write_json(export_dir / "bundle_meta.json", {"schema_version": "1.0", "artifacts": artifacts})
 
 
-def _sorted_repo_results(repo_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    def k(r: dict[str, Any]) -> tuple[str, str, str]:
-        repo = r.get("repo") or {}
-        return (str(repo.get("repo_id", "")), str(repo.get("repo_hash", "")), str(repo.get("repo_root", "")))
-
-    return sorted(repo_results, key=k)
-
-
-def _signals_nonzero(rr: dict[str, Any]) -> bool:
+def _signals_nonzero(rr: dict[str, Any], *, allow_missing: bool) -> bool:
     gate = rr.get("gate") or {}
     if bool(gate.get("strict_failed", False)) or bool(gate.get("regression_detected", False)):
         return True
-    return int(rr.get("exit_code", 0)) != 0
+    is_required_error = bool((rr.get("repo") or {}).get("required", True)) and str(rr.get("repo_status", "ok")) == "error"
+    if is_required_error and not allow_missing:
+        return True
+    return False
 
 
 def run_portfolio_gate(
     *,
-    repos: list[str] | None,
-    repos_file: str | None,
+    repos: Optional[list[str]],
+    repos_file: Optional[str],
+    repos_map: Optional[str],
+    allow_missing: bool,
     hide_samples: bool,
     strict: bool,
     enforce_sla: bool,
-    as_of: str | None,
-    export_path: str | None,
+    as_of: Optional[str],
+    export_path: Optional[str],
     jobs: int,
     fail_fast: bool,
-    max_repos: int | None,
+    max_repos: Optional[int],
     export_mode: str,
 ) -> tuple[dict[str, Any], int]:
-    repo_paths: list[str] = []
-    if repos_file:
-        repo_paths.extend(_parse_repos_file(repos_file))
-    if repos:
-        repo_paths.extend(repos)
-    if not repo_paths:
-        payload = {
-            "schema_version": PORTFOLIO_GATE_SCHEMA_VERSION,
-            "command": "portfolio_gate",
-            "error": "MISSING_REPOS",
-            "hint": "portfolio-gate requires --repos and/or --repos-file",
-        }
-        return payload, 1
+    # Resolve repo list priority:
+    # 1) --repos-map
+    # 2) --repos / --repos-file
+    # 3) default repos-map at data/portfolio/repos.json if present and no explicit repos provided
+    repo_specs: list[RepoSpec] = []
 
+    if repos_map:
+        entries = _load_repos_map(repos_map)
+        repo_specs = [_spec_from_map_entry(e) for e in entries]
+    else:
+        # default repos-map if present and no explicit repo args
+        default_map = Path(_engine_root()) / "data" / "portfolio" / "repos.json"
+        if (not repos) and (not repos_file) and default_map.exists():
+            entries = _load_repos_map(str(default_map))
+            repo_specs = [_spec_from_map_entry(e) for e in entries]
+        else:
+            repo_paths: list[str] = []
+            if repos_file:
+                repo_paths.extend(_parse_repos_file(repos_file))
+            if repos:
+                repo_paths.extend(repos)
+            if not repo_paths:
+                raise SystemExit("portfolio-gate requires --repos-map or --repos/--repos-file")
+            repo_specs = [_repo_spec_from_path(p) for p in repo_paths]
+
+    # Apply max_repos safety valve after expansion
     if max_repos is not None:
         if int(max_repos) <= 0:
-            payload = {
-                "schema_version": PORTFOLIO_GATE_SCHEMA_VERSION,
-                "command": "portfolio_gate",
-                "error": "BAD_MAX_REPOS",
-                "hint": "--max-repos must be >= 1",
-            }
-            return payload, 1
-        repo_paths = repo_paths[: int(max_repos)]
+            raise SystemExit("--max-repos must be >= 1")
+        repo_specs = repo_specs[: int(max_repos)]
 
     if export_mode not in {"portfolio-only", "with-repo-gates"}:
-        payload = {
-            "schema_version": PORTFOLIO_GATE_SCHEMA_VERSION,
-            "command": "portfolio_gate",
-            "error": "BAD_EXPORT_MODE",
-            "hint": "--export-mode must be one of: portfolio-only, with-repo-gates",
-        }
-        return payload, 1
+        raise SystemExit("--export-mode must be one of: portfolio-only, with-repo-gates")
 
+    # Deterministic spec ordering
+    repo_specs.sort(key=lambda r: (r.repo_id, r.repo_hash, r.repo_root))
+
+    # jobs safety
     jobs = int(jobs)
     if jobs < 1:
-        payload = {
-            "schema_version": PORTFOLIO_GATE_SCHEMA_VERSION,
-            "command": "portfolio_gate",
-            "error": "BAD_JOBS",
-            "hint": "--jobs must be >= 1",
-        }
-        return payload, 1
-    jobs = min(jobs, 16)
-
-    specs = [_repo_spec(p) for p in repo_paths]
-    specs.sort(key=lambda r: (r.repo_id, r.repo_hash, r.repo_root))
+        raise SystemExit("--jobs must be >= 1")
+    jobs = min(jobs, 16)  # hard cap
 
     repo_results: list[dict[str, Any]] = []
 
+    def run_one(spec: RepoSpec) -> dict[str, Any]:
+        return _run_operator_gate_for_repo(
+            spec,
+            hide_samples=hide_samples,
+            strict=strict,
+            enforce_sla=enforce_sla,
+            as_of=as_of,
+        )
+
     if jobs == 1:
-        for spec in specs:
-            rr = _run_operator_gate_for_repo(
-                spec,
-                hide_samples=hide_samples,
-                strict=strict,
-                enforce_sla=enforce_sla,
-                as_of=as_of,
-            )
+        for spec in repo_specs:
+            rr = run_one(spec)
             repo_results.append(rr)
-            if fail_fast and _signals_nonzero(rr):
+            if fail_fast and _signals_nonzero(rr, allow_missing=bool(allow_missing)):
                 break
-    elif not fail_fast:
-        futures = []
+    else:
+        futures: list[Future[dict[str, Any]]] = []
+        stop_launch = False
         with ThreadPoolExecutor(max_workers=jobs) as ex:
-            for spec in specs:
-                futures.append(
-                    ex.submit(
-                        _run_operator_gate_for_repo,
-                        spec,
-                        hide_samples=hide_samples,
-                        strict=strict,
-                        enforce_sla=enforce_sla,
-                        as_of=as_of,
-                    )
-                )
+            for spec in repo_specs:
+                if stop_launch:
+                    break
+                fut = ex.submit(run_one, spec)
+                futures.append(fut)
+
+                if fail_fast and len(futures) >= jobs:
+                    # Opportunistic: if any completed already implies non-zero, stop launching more
+                    for f in futures:
+                        if not f.done():
+                            continue
+                        rr = f.result()
+                        if _signals_nonzero(rr, allow_missing=bool(allow_missing)):
+                            stop_launch = True
+                            break
+
             for fut in as_completed(futures):
                 repo_results.append(fut.result())
-    else:
-        with ThreadPoolExecutor(max_workers=jobs) as ex:
-            pending = {}
-            spec_index = 0
-
-            while spec_index < len(specs) and len(pending) < jobs:
-                spec = specs[spec_index]
-                fut = ex.submit(
-                    _run_operator_gate_for_repo,
-                    spec,
-                    hide_samples=hide_samples,
-                    strict=strict,
-                    enforce_sla=enforce_sla,
-                    as_of=as_of,
-                )
-                pending[fut] = spec
-                spec_index += 1
-
-            stop_launching = False
-            while pending:
-                done, _ = wait(set(pending.keys()), return_when=FIRST_COMPLETED)
-                for fut in done:
-                    pending.pop(fut, None)
-                    rr = fut.result()
-                    repo_results.append(rr)
-                    if _signals_nonzero(rr):
-                        stop_launching = True
-
-                while (not stop_launching) and spec_index < len(specs) and len(pending) < jobs:
-                    spec = specs[spec_index]
-                    fut = ex.submit(
-                        _run_operator_gate_for_repo,
-                        spec,
-                        hide_samples=hide_samples,
-                        strict=strict,
-                        enforce_sla=enforce_sla,
-                        as_of=as_of,
-                    )
-                    pending[fut] = spec
-                    spec_index += 1
 
     repo_results = _sorted_repo_results(repo_results)
     top_actions = _merge_top_actions(repo_results)
-    exit_code = _portfolio_exit_code(repo_results)
+    exit_code = _portfolio_exit_code(repo_results, allow_missing=bool(allow_missing))
 
     payload: dict[str, Any] = {
         "schema_version": PORTFOLIO_GATE_SCHEMA_VERSION,
         "command": "portfolio_gate",
         "portfolio_exit_code": int(exit_code),
         "policy": {
+            "allow_missing": bool(allow_missing),
             "hide_samples": bool(hide_samples),
             "strict": bool(strict),
             "enforce_sla": bool(enforce_sla),
@@ -446,6 +539,7 @@ def run_portfolio_gate(
             "fail_fast": bool(fail_fast),
             "max_repos": int(max_repos) if max_repos is not None else None,
             "export_mode": export_mode,
+            "repos_map": repos_map,
         },
         "repos": repo_results,
         "top_actions": top_actions,
@@ -455,21 +549,19 @@ def run_portfolio_gate(
     if export_path:
         export_dir = Path(export_path).expanduser().resolve()
         export_dir.mkdir(parents=True, exist_ok=True)
-        _write_json(export_dir / "portfolio_gate.json", payload)
 
         artifacts: list[str] = ["bundle_meta.json", "portfolio_gate.json"]
+        _write_json(export_dir / "portfolio_gate.json", payload)
+
         if export_mode == "with-repo-gates":
             for rr in repo_results:
-                repo = rr.get("repo") or {}
-                repo_hash = str(repo.get("repo_hash", "unknown"))
+                repo_hash = str((rr.get("repo") or {}).get("repo_hash", ""))
+                if not repo_hash:
+                    continue
                 fn = f"repo_{repo_hash}_operator_gate.json"
-                gate_payload = rr.get("gate")
-                if isinstance(gate_payload, dict):
-                    _write_json(export_dir / fn, gate_payload)
-                else:
-                    _write_json(export_dir / fn, {})
+                _write_json(export_dir / fn, rr.get("gate") or {})
                 artifacts.append(fn)
-            artifacts = sorted(set(artifacts))
+            artifacts = sorted(artifacts)
 
         _write_bundle_meta(export_dir, artifacts)
 

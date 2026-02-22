@@ -8,6 +8,7 @@ Runs `operator gate` across multiple repo roots / registries and aggregates resu
 python -m app.main operator portfolio-gate --json --repos /path/repoA /path/repoB
 python -m app.main operator portfolio-gate --json --repos-file repos.txt
 python -m app.main operator portfolio-gate --json --repos . --export-path /tmp/portfolio
+python -m app.main operator portfolio-gate --json --repos-map data/portfolio/repos.json
 ```
 
 Flags passed through to each repo run:
@@ -21,6 +22,15 @@ Phase 2 flags:
 - `--fail-fast` (stop launching new runs when outcome is already non-zero)
 - `--max-repos N` (safety valve)
 - `--export-mode portfolio-only|with-repo-gates`
+
+Repo Map (recommended):
+- `--repos-map data/portfolio/repos.json` (repo roots + owner + required)
+- If `data/portfolio/repos.json` exists and you provide no `--repos`/`--repos-file`, portfolio-gate will use it automatically.
+
+Partial failure semantics:
+- Each repo entry includes `repo_status: ok|error`
+- Error codes: `REPO_PATH_NOT_FOUND`, `REGISTRY_NOT_FOUND`, `SUBPROCESS_FAILED`, `INVALID_JSON`
+- Missing required repos force portfolio exit `3` (regression) unless `--allow-missing` is set.
 
 CI default (A):
 - `--repos-file data/portfolio/repos.txt`

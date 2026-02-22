@@ -1,6 +1,7 @@
 # PORTFOLIO_GATE_CONTRACT (v1.0)
 
 Schema version: `1.0`
+Repo map schema version: `1.0` (`data/portfolio/repos.json`)
 
 ## Command
 `python -m app.main operator portfolio-gate --json ...`
@@ -16,6 +17,7 @@ Top-level keys (required):
 - `artifacts` (object)
 
 ### policy (required)
+- `allow_missing` (bool)
 - `hide_samples` (bool)
 - `strict` (bool)
 - `enforce_sla` (bool)
@@ -24,10 +26,14 @@ Top-level keys (required):
 - `fail_fast` (bool)
 - `max_repos` (int|null)
 - `export_mode` (string)
+- `repos_map` (string|null)
 
 ### repos[] entries (required)
 Each element is a wrapper:
 - `repo` (object): `repo_id`, `repo_hash`, `repo_root`, `registry_path`
+- `repo_status` (string): `"ok"` | `"error"`
+- `error_code` (string|null)
+- `error_message` (string|null)
 - `exit_code` (int)
 - `gate` (object) - result of `operator gate --json`
 - `stderr` (string)
@@ -38,6 +44,16 @@ Portfolio exit code mirrors operator gate:
 - `2` strict failed (any repo)
 - `3` regression detected (any repo)
 - `4` both
+
+Missing repo semantics:
+- If `required=true` and `repo_status="error"`:
+  - portfolio exit becomes `3` (regression) unless `--allow-missing` is set.
+
+Error codes:
+- `REPO_PATH_NOT_FOUND`
+- `REGISTRY_NOT_FOUND`
+- `SUBPROCESS_FAILED`
+- `INVALID_JSON`
 
 ## Export bundle
 When `--export-path` is used, the directory must contain:

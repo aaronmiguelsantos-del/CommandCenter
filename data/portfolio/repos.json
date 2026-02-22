@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "repos": [
+    {
+      "repo_id": "bootstrapping-engine",
+      "path": ".",
+      "owner": "Aaron",
+      "required": true,
+      "notes": "Canonical kernel repo"
+    }
+  ]
+}

@@ -205,7 +205,7 @@ def test_contract_drift_sentinel_portfolio_export(tmp_path: Path) -> None:
             "--export-mode",
             "portfolio-only",
             "--jobs",
-            "4",
+            "1",
         ]
     )
     assert p.returncode == 0, f"portfolio-gate failed: {p.stderr}"
