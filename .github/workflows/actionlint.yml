@@ -15,8 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash -s -- latest
+          sudo mv ./actionlint /usr/local/bin/actionlint
+
       - name: Run actionlint
-        uses: rhysd/actionlint@v1
+        run: actionlint -color
 
       - name: Run workflow contract guard
         run: python3 scripts/workflow_contract_guard.py
