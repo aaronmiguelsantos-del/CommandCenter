@@ -13,6 +13,7 @@ from core.graph import build_graph, graph_as_json, render_graph_text
 from core.health import compute_and_write_health, compute_health_for_system
 from core.portfolio_gate import run_portfolio_gate
 from core.portfolio_operator_gate import run_portfolio_operator_gate
+from core.portfolio_operator_gate_pretty import render_portfolio_operator_gate_pretty
 from core.portfolio_snapshot import (
     capture_portfolio_snapshot,
     stats_portfolio_snapshots,
@@ -253,6 +254,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Portfolio-level gate: snapshot write + diff + CI exit codes.",
     )
     operator_portfolio_operator_gate.add_argument("--json", action="store_true")
+    operator_portfolio_operator_gate.add_argument(
+        "--pretty",
+        action="store_true",
+        help="Human-readable output derived from JSON payload",
+    )
     operator_portfolio_operator_gate.add_argument("--ledger", default="data/snapshots/portfolio_snapshot_history.jsonl")
     operator_portfolio_operator_gate.add_argument("--as-of", default=None)
     operator_portfolio_operator_gate.add_argument("--captured-at", default=None)
@@ -1400,7 +1406,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 captured_at=args.captured_at,
                 export_path=args.export_path,
             )
-            if bool(args.json):
+            if bool(args.pretty):
+                sys.stdout.write(render_portfolio_operator_gate_pretty(payload))
+            elif bool(args.json):
                 sys.stdout.write(json.dumps(payload, sort_keys=True))
                 sys.stdout.write("\n")
             else:

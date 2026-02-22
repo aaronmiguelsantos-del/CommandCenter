@@ -126,3 +126,15 @@ ls -1 /tmp/portfolio_gate | sort
 Determinism (tests):
 
 Use `--captured-at 2026-02-22T00:00:00+00:00`.
+
+Pretty mode:
+
+```bash
+python -m app.main operator portfolio-operator-gate --pretty \
+  --repos-map data/portfolio/repos.json \
+  --hide-samples --strict --enforce-sla --jobs 4
+```
+
+CI enforcement:
+
+`.github/workflows/portfolio_gate.yml` runs this gate, exports artifacts, uploads them, and fails the job on non-zero exit.
