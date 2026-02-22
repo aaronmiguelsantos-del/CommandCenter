@@ -50,7 +50,7 @@ jobs:
           if [ ! -f /tmp/portfolio_gate_export/bundle_meta.json ]; then
             echo "{\"status\":\"missing_bundle_meta\",\"exit_code\":${code}}" > /tmp/portfolio_gate_export/bundle_meta.json
           fi
-          echo "exit_code=$code" >> $GITHUB_OUTPUT
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "Gate exit code: $code"
           if [ "$code" -ne 0 ] && [ "$code" -ne 2 ] && [ "$code" -ne 3 ] && [ "$code" -ne 4 ]; then
             exit "$code"
