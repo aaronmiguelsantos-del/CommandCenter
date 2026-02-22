@@ -3,7 +3,7 @@
 PY := .venv/bin/python
 PIP := .venv/bin/pip
 
-.PHONY: help venv deps test health health-json health-global log system-list
+.PHONY: help venv deps test health health-json health-global log system-list workflow-contract-guard install-hooks
 
 help:
 	@echo ""
@@ -15,6 +15,8 @@ help:
 	@echo "  make health-json   Per-system health JSON (pretty)"
 	@echo "  make health-global Global repo health (aggregated across all systems)"
 	@echo "  make system-list   Alias for per-system health"
+	@echo "  make workflow-contract-guard Validate workflow lint contracts"
+	@echo "  make install-hooks Configure local git hooks path (.githooks)"
 	@echo ""
 
 venv:
@@ -40,3 +42,9 @@ health-global:
 
 system-list:
 	$(PY) -m app.main system list
+
+workflow-contract-guard:
+	python3 scripts/workflow_contract_guard.py
+
+install-hooks:
+	git config core.hooksPath .githooks
