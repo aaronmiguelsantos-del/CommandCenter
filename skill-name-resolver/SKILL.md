@@ -40,6 +40,10 @@ python3 scripts/resolve_skill_names.py \
 ```bash
 python3 tests/run_shared_resolver_smoke.py --json
 ```
+Override requested corpus inline:
+```bash
+python3 tests/run_shared_resolver_smoke.py --requested publisher,usage_failure_triage --json
+```
 
 ## Guarantees
 

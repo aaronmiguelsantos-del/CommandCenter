@@ -173,8 +173,13 @@ def _resolve(
         for candidate in _iter_candidates(seed, max_depth=depth):
             skills = _discover_skill_names(candidate)
             score = _score_candidate(candidate, skills, prefer_repo_root=prefer_repo_root)
-            if i > 0:
-                score -= 1
+            if i == 1:
+                # Keep immediate-parent exploration lightly penalized.
+                score -= 20
+            elif i > 1:
+                # Heavily down-rank distant ancestors/siblings so unrelated
+                # high-signal folders (for example stale /tmp clones) do not win.
+                score -= (i - 1) * 500
             candidates.append(
                 {
                     "path": str(candidate),

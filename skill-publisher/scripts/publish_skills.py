@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 import time
 from pathlib import Path
 import re
@@ -27,6 +28,9 @@ DEFAULT_USAGE_SCHEMA_REL = Path("skill-adoption-analytics") / "references" / "sk
 DEFAULT_REASON_CODES_REL = Path("skill-adoption-analytics") / "references" / "reason_codes.json"
 DEFAULT_NAME_RESOLVER_REL = Path("skill-name-resolver") / "scripts" / "resolve_skill_names.py"
 DEFAULT_SOURCE_RESOLVER_REL = Path("skill-source-resolver") / "scripts" / "resolve_skill_source.py"
+DEFAULT_PUBLISH_PR_SUMMARY_REL = Path("publish-pr-summary") / "scripts" / "generate_publish_pr_summary.py"
+DEFAULT_TELEMETRY_SLO_CONFIG_REL = Path("telemetry-slo-guard") / "references" / "default_slo_config.json"
+SKIP_PR_SUMMARY_ENV = "SKILL_PUBLISHER_DISABLE_PR_SUMMARY"
 REQUIRED_PUBLISH_REASON_CODES = {
     "unknown_skill",
     "source_root_missing",
@@ -688,6 +692,53 @@ def _run_rollup_contract_check(source_root: Path) -> Dict[str, Any]:
     return payload
 
 
+def _generate_publish_pr_summary(
+    source_root: Path,
+    workspace_root: Path,
+    requested_only: List[str],
+    skills_targeted: List[str],
+    usage_events_path: Path,
+) -> Dict[str, Any]:
+    summary_script = workspace_root / DEFAULT_PUBLISH_PR_SUMMARY_REL
+    if not summary_script.exists():
+        raise PublishError(f"publish summary script not found: {summary_script}")
+
+    summary_json_path = source_root / "data" / "publish_pr_summary.json"
+    summary_md_path = source_root / "data" / "publish_pr_summary.md"
+    requested_csv = ",".join(requested_only) if requested_only else ",".join(skills_targeted)
+    skills_csv = ",".join(skills_targeted)
+    slo_config = workspace_root / DEFAULT_TELEMETRY_SLO_CONFIG_REL
+
+    cmd = [
+        "python3",
+        str(summary_script),
+        "--repo-root",
+        str(workspace_root),
+        "--skills-targeted",
+        skills_csv,
+        "--requested",
+        requested_csv,
+        "--events",
+        str(usage_events_path),
+        "--slo-config",
+        str(slo_config),
+        "--output-json",
+        str(summary_json_path),
+        "--output-md",
+        str(summary_md_path),
+        "--json",
+    ]
+    rc, out, err = _run(cmd, cwd=workspace_root)
+    if rc != 0:
+        raise PublishError(f"publish PR summary generation failed: {err or out}")
+    payload = _parse_json_output(out, "publish-pr-summary")
+    return {
+        "summary_json_path": str(summary_json_path),
+        "summary_md_path": str(summary_md_path),
+        "report": payload,
+    }
+
+
 def _git_commit(repo_root: Path, message: str, paths: List[str]) -> Tuple[bool, str]:
     rc, out, err = _run(["git", "status", "--short"], cwd=repo_root)
     if rc != 0:
@@ -735,6 +786,7 @@ def publish(
     run_rollup_contract: bool,
     source_resolution: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
+    workspace_root = Path(__file__).resolve().parents[2]
     started = time.monotonic()
     if not source_root.exists() or not source_root.is_dir():
         raise PublishError(f"source root does not exist: {source_root}")
@@ -824,6 +876,55 @@ def publish(
     usage_dst.parent.mkdir(parents=True, exist_ok=True)
     usage_dst.write_text(usage_src.read_text(encoding="utf-8"), encoding="utf-8")
 
+    skip_summary = os.getenv(SKIP_PR_SUMMARY_ENV, "").strip() == "1"
+    summary_info: Dict[str, Any]
+    summary_json_src: Path | None = None
+    summary_md_src: Path | None = None
+    if skip_summary:
+        summary_info = {
+            "summary_json_path": "",
+            "summary_md_path": "",
+            "report": {
+                "schema_version": 1,
+                "skills_targeted": [s.name for s in skill_dirs],
+                "requested_only": resolved_only,
+                "resolver_consistency": {
+                    "status": "skipped",
+                    "consistent": False,
+                    "requested": ",".join(resolved_only),
+                    "resolved": [],
+                    "publish": [],
+                    "regression": [],
+                    "roadmap": [],
+                    "error": f"skipped by env {SKIP_PR_SUMMARY_ENV}",
+                },
+                "trend_status": {
+                    "status": "skipped",
+                    "passed": False,
+                    "violations_count": 0,
+                    "violations_preview": [],
+                    "skills": [],
+                    "error": f"skipped by env {SKIP_PR_SUMMARY_ENV}",
+                },
+            },
+        }
+    else:
+        summary_info = _generate_publish_pr_summary(
+            source_root=source_root,
+            workspace_root=workspace_root,
+            requested_only=resolved_only,
+            skills_targeted=[s.name for s in skill_dirs],
+            usage_events_path=usage_src,
+        )
+        summary_json_src = Path(str(summary_info["summary_json_path"])).expanduser().resolve()
+        summary_md_src = Path(str(summary_info["summary_md_path"])).expanduser().resolve()
+        summary_json_dst = repo_root / "data" / summary_json_src.name
+        summary_md_dst = repo_root / "data" / summary_md_src.name
+        summary_json_dst.parent.mkdir(parents=True, exist_ok=True)
+        summary_md_dst.parent.mkdir(parents=True, exist_ok=True)
+        summary_json_dst.write_text(summary_json_src.read_text(encoding="utf-8"), encoding="utf-8")
+        summary_md_dst.write_text(summary_md_src.read_text(encoding="utf-8"), encoding="utf-8")
+
     index = _build_index(all_skill_dirs)
     index_path = repo_root / "skills_index.json"
     index_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
@@ -832,6 +933,9 @@ def publish(
     committed = False
     if commit:
         commit_paths = sorted(synced + ["skills_index.json", "data/skill_releases.jsonl", "data/skill_usage_events.jsonl"])
+        if not skip_summary:
+            commit_paths.extend(["data/publish_pr_summary.json", "data/publish_pr_summary.md"])
+        commit_paths = sorted(commit_paths)
         committed, commit_info = _git_commit(repo_root, commit_message, commit_paths)
 
     push_info = "push skipped"
@@ -857,6 +961,12 @@ def publish(
         "usage_events": {
             "events_path": usage_events_path,
             "appended": usage_events_count,
+        },
+        "publish_pr_summary": {
+            "json_path": str(summary_json_src) if summary_json_src else "",
+            "md_path": str(summary_md_src) if summary_md_src else "",
+            "report": summary_info["report"],
+            "skipped": skip_summary,
         },
         "regressions": regression_info,
         "rollup_contract": rollup_contract_info,

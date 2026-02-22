@@ -7,6 +7,16 @@
       "description": "Validate CLI contract stability for app.main commands, including command availability, exit codes, stdout JSON schemas, strict stderr payload schema, and snapshot drift checks. Use when Codex needs to prevent UI/CLI contract regressions before release."
     },
     {
+      "name": "publish-pr-summary",
+      "path": "publish-pr-summary",
+      "description": "Generate deterministic publish PR summary artifacts (JSON + Markdown) with resolver consistency and telemetry trend status for scoped skill publishes."
+    },
+    {
+      "name": "release-preflight-guard",
+      "path": "release-preflight-guard",
+      "description": "Run resolver smoke, strict regressions, rollup contract checks, and telemetry SLO gating in one deterministic command and emit a single JSON verdict artifact."
+    },
+    {
       "name": "release-readiness-orchestrator",
       "path": "release-readiness-orchestrator",
       "description": "Run a deterministic release go/no-go pipeline by orchestrating repo hardening checks, health checks, and CLI contract checks, then emit a single release_readiness.json verdict and CI-friendly exit code. Use when Codex needs one-command preflight before release."
@@ -25,6 +35,11 @@
       "name": "repo-health-reporter",
       "path": "repo-health-reporter",
       "description": "Generate deterministic repository health reports in human and JSON formats, enforce CI-ready exit codes, and optionally install a local app entrypoint for `python3 -m app.main report health`. Use when Codex needs to assess repo readiness, diagnose CI instability, or standardize health reporting."
+    },
+    {
+      "name": "resolver-corpus-guard",
+      "path": "resolver-corpus-guard",
+      "description": "Validate skill-source-resolver behavior against a deterministic corpus of multi-root edge cases, including nested .codex/skills and competing git repos."
     },
     {
       "name": "roadmap-pr-prep",

@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Publish PR Summary
+  short_description: Build publish PR summary artifacts with resolver and trend signals.
+  default_prompt: Generate deterministic publish PR summary JSON and Markdown artifacts.

@@ -181,6 +181,11 @@ def run_smoke(repo_root: Path, requested: str) -> Dict[str, Any]:
 def parse_args(argv: List[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Shared resolver smoke suite")
     p.add_argument(
+        "--requested",
+        default="",
+        help="Optional requested CSV override (takes precedence over --corpus)",
+    )
+    p.add_argument(
         "--corpus",
         default="",
         help="Path to input corpus json with requested CSV",
@@ -192,15 +197,16 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
 def main(argv: List[str]) -> int:
     args = parse_args(argv)
     repo_root = Path(__file__).resolve().parents[2]
+    requested = str(args.requested).strip()
+    corpus_path = (Path(__file__).resolve().parent / "fixtures" / "shared_only_corpus.json").resolve()
     if args.corpus:
         corpus_path = Path(args.corpus).expanduser()
         if not corpus_path.is_absolute():
             corpus_path = (Path.cwd() / corpus_path).resolve()
-    else:
-        corpus_path = (Path(__file__).resolve().parent / "fixtures" / "shared_only_corpus.json").resolve()
 
     try:
-        requested = _load_requested(corpus_path)
+        if not requested:
+            requested = _load_requested(corpus_path)
         report = run_smoke(repo_root=repo_root, requested=requested)
     except SmokeError as err:
         print(f"error: {err}", file=sys.stderr)

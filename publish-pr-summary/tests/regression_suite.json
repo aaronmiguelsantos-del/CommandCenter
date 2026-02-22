@@ -1,0 +1,33 @@
+{
+  "cases": [
+    {
+      "id": "summary_smoke",
+      "command": [
+        "python3",
+        "scripts/generate_publish_pr_summary.py",
+        "--repo-root",
+        "..",
+        "--skills-targeted",
+        "skill-publisher,usage-failure-triage",
+        "--requested",
+        "publisher,usage_failure_triage,skill-publisher",
+        "--events",
+        "telemetry-slo-guard/tests/fixtures/events_trend.jsonl",
+        "--slo-config",
+        "telemetry-slo-guard/tests/fixtures/slo_config_trend_pass.json",
+        "--output-json",
+        "/tmp/publish_pr_summary.json",
+        "--output-md",
+        "/tmp/publish_pr_summary.md",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"schema_version\": 1",
+        "\"resolver_consistency\"",
+        "\"trend_status\"",
+        "\"skill-publisher\""
+      ]
+    }
+  ]
+}

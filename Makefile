@@ -1,8 +1,9 @@
-.PHONY: roadmap-pr rollup-contract verify-roadmap regression-strict publish-skills nightly-local nightly-local-check telemetry-coverage telemetry-slo resolve-skill-source resolve-skill-names resolver-smoke
+.PHONY: roadmap-pr rollup-contract verify-roadmap regression-strict publish-skills nightly-local nightly-local-check telemetry-coverage telemetry-slo resolve-skill-source resolve-skill-names resolver-smoke resolver-corpus release-preflight
 EVENTS ?= data/skill_usage_events.jsonl
 NIGHTLY_EVENTS ?= /tmp/nightly-telemetry/skill_usage_events.jsonl
 SOURCE_ROOT ?= .
 SLO_CONFIG ?= telemetry-slo-guard/references/default_slo_config.json
+RELEASE_PREFLIGHT_OUTPUT ?= data/release_preflight.json
 
 roadmap-pr:
 	python3 roadmap-pr-prep/scripts/prepare_roadmap_pr.py \
@@ -35,7 +36,7 @@ regression-strict:
 		--source-root "$(SOURCE_ROOT)" \
 		--auto-source-root \
 		--prefer-repo-root \
-		--only roadmap-pr-prep,usage-failure-triage,skill-publisher,skill-telemetry-instrumentor,skill-name-resolver,skill-source-resolver,telemetry-slo-guard \
+		--only roadmap-pr-prep,usage-failure-triage,skill-publisher,skill-telemetry-instrumentor,skill-name-resolver,skill-source-resolver,telemetry-slo-guard,release-preflight-guard,publish-pr-summary,resolver-corpus-guard \
 		--strict \
 		--json
 
@@ -140,3 +141,15 @@ resolve-skill-names:
 
 resolver-smoke:
 	python3 skill-name-resolver/tests/run_shared_resolver_smoke.py --json
+
+resolver-corpus:
+	python3 resolver-corpus-guard/scripts/check_resolver_corpus.py --repo-root . --strict --json
+
+release-preflight:
+	python3 release-preflight-guard/scripts/run_release_preflight.py \
+		--repo-root . \
+		--events "$(EVENTS)" \
+		--slo-config "$(SLO_CONFIG)" \
+		--output "$(RELEASE_PREFLIGHT_OUTPUT)" \
+		--strict \
+		--json

@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "8c0eafe8e2de43c51d46242fc0df3fdb36224b2a0ab2f36462b2469b66248ca1",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"schema_version\": 1,\n  \"repo_root\": \"/Users/aaronsantos/Skill Builder/repo-bootstrapper-repo\",\n  \"events\": \"/Users/aaronsantos/Skill Builder/repo-bootstrapper-repo/telemetry-slo-guard/tests/fixtures/events_trend.jsonl\",\n  \"slo_config\": \"/Users/aaronsantos/Skill Builder/repo-bootstrapper-repo/telemetry-slo-guard/tests/fixtures/slo_config_trend_pass.json\",\n  \"verdict\": \"ready\",\n  \"ready\": true,\n  \"blockers\": [],\n  \"checks\": [\n    {\n      \"name\": \"resolver-smoke\",\n      \"target\": \"resolver-smoke\",\n      \"command\": [\n        \"make\",\n        \"-s\",\n        \"resolver-smoke\"\n      ],\n      \"rc\": 0,\n      \"passed\": true,\n      \"stdout_json\": [\n        {\n          \"consistent\": true,\n          \"publish\": [\n            \"skill-publisher\",\n            \"usage-failure-triage\"\n          ],\n          \"regression\": [\n            \"skill-publisher\",\n            \"usage-failure-triage\"\n          ],",
+  "stderr_head": ""
+}

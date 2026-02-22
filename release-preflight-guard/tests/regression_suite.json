@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "id": "preflight_smoke",
+      "command": [
+        "python3",
+        "scripts/run_release_preflight.py",
+        "--repo-root",
+        "..",
+        "--events",
+        "telemetry-slo-guard/tests/fixtures/events_trend.jsonl",
+        "--slo-config",
+        "telemetry-slo-guard/tests/fixtures/slo_config_trend_pass.json",
+        "--output",
+        "/tmp/release_preflight_guard.json",
+        "--skip-regression-strict",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"schema_version\": 1",
+        "\"verdict\": \"ready\"",
+        "\"resolver-smoke\"",
+        "\"telemetry-slo\""
+      ]
+    }
+  ]
+}

@@ -63,6 +63,22 @@
         "\"source_resolution_used\": true",
         "\"skill-a\""
       ]
+    },
+    {
+      "id": "pr_summary_artifact",
+      "command": [
+        "python3",
+        "tests/run_regression_case.py",
+        "--scenario",
+        "pr_summary_artifact"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"scenario\": \"pr_summary_artifact\"",
+        "\"publish_rc\": 0",
+        "\"source_json_exists\": true",
+        "\"repo_json_exists\": true"
+      ]
     }
   ]
 }

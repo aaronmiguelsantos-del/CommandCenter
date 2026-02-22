@@ -65,6 +65,49 @@
         "source-repo",
         "\"resolved\": true"
       ]
+    },
+    {
+      "id": "multiroot_default_prefers_inventory",
+      "command": [
+        "python3",
+        "scripts/resolve_skill_source.py",
+        "--start",
+        "tests/fixtures/multi-root/worktree/.codex/skills",
+        "--max-depth",
+        "4",
+        "--min-skills",
+        "1",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"prefer_repo_root\": false",
+        ".codex/skills",
+        "\"resolved\": true"
+      ]
+    },
+    {
+      "id": "multiroot_prefer_repo_root",
+      "command": [
+        "python3",
+        "scripts/resolve_skill_source.py",
+        "--start",
+        "tests/fixtures/multi-root/worktree/.codex/skills",
+        "--max-depth",
+        "4",
+        "--min-skills",
+        "1",
+        "--prefer-repo-root",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"prefer_repo_root\": true",
+        "source-repo-b",
+        "\"resolved\": true"
+      ]
     }
   ]
 }

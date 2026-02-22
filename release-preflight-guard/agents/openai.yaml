@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Release Preflight Guard
+  short_description: One-command release preflight verdict for skills pipelines.
+  default_prompt: Run release preflight and return one go/no-go JSON artifact.

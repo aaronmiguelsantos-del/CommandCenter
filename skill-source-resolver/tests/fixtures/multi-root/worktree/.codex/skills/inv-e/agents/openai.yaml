@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Fixture Skill
+  short_description: Fixture skill for resolver tests.
+  default_prompt: Use fixture skill.

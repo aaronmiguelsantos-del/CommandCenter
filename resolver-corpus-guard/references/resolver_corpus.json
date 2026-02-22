@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "inventory_default",
+      "start": "skill-source-resolver/tests/fixtures/multi-root/worktree/.codex/skills",
+      "max_depth": 4,
+      "min_skills": 1,
+      "prefer_repo_root": false,
+      "no_ancestor_search": false,
+      "expected_resolved": true,
+      "expected_root_suffix": "skill-source-resolver/tests/fixtures/multi-root/worktree/.codex/skills"
+    },
+    {
+      "id": "prefer_repo",
+      "start": "skill-source-resolver/tests/fixtures/multi-root/worktree/.codex/skills",
+      "max_depth": 4,
+      "min_skills": 1,
+      "prefer_repo_root": true,
+      "no_ancestor_search": false,
+      "expected_resolved": true,
+      "expected_root_suffix": "skill-source-resolver/tests/fixtures/multi-root/worktree/repos/source-repo-b"
+    },
+    {
+      "id": "strict_unresolved",
+      "start": "skill-source-resolver/tests/fixtures/workspace/empty-root",
+      "max_depth": 1,
+      "min_skills": 1,
+      "prefer_repo_root": false,
+      "no_ancestor_search": true,
+      "expected_resolved": false,
+      "expected_root_suffix": ""
+    }
+  ]
+}

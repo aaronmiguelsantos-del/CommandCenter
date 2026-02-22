@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "b3c2e80654bbc18e8830c1479719c157ba0befce7ac233fa17a7e80aee4af268",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"schema_version\": 1,\n  \"skills_targeted\": [\n    \"skill-publisher\",\n    \"usage-failure-triage\"\n  ],\n  \"requested_only\": [\n    \"publisher\",\n    \"usage_failure_triage\",\n    \"skill-publisher\"\n  ],\n  \"resolver_consistency\": {\n    \"status\": \"ok\",\n    \"consistent\": true,\n    \"requested\": \"publisher,usage_failure_triage,skill-publisher\",\n    \"resolved\": [\n      \"skill-publisher\",\n      \"usage-failure-triage\"\n    ],\n    \"publish\": [\n      \"skill-publisher\",\n      \"usage-failure-triage\"\n    ],\n    \"regression\": [\n      \"skill-publisher\",\n      \"usage-failure-triage\"\n    ],\n    \"roadmap\": [\n      \"skill-publisher\",\n      \"usage-failure-triage\"",
+  "stderr_head": ""
+}

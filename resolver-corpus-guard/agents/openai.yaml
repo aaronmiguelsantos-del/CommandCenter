@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Resolver Corpus Guard
+  short_description: Enforce resolver behavior across multi-root edge-case corpora.
+  default_prompt: Run resolver corpus checks and fail on drift.

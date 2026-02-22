@@ -61,6 +61,7 @@ Default integrated pipeline on each run:
 - enforce `skill_usage_events.schema.json` and append valid usage events to `data/skill_usage_events.jsonl` for targeted skills
 - enforce shared reason-code dictionary (`reason_codes.json`) for all emitted `reason_code` values
 - append failure usage events with deterministic `reason_code` on publish errors
+- auto-generate publish PR summary artifacts (`data/publish_pr_summary.json` + `data/publish_pr_summary.md`) with resolver consistency and telemetry trend status
 
 ## What It Enforces
 

@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "6832bae4b0e565beeb468af489012dcfceb84c6c8cb477d26cf3d291a0a4f704",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"publish_rc\": 0,\n  \"repo_json_exists\": true,\n  \"resolver_status\": \"error\",\n  \"scenario\": \"pr_summary_artifact\",\n  \"skills_targeted\": [\n    \"skill-a\"\n  ],\n  \"source_json_exists\": true,\n  \"trend_status\": \"ok\"\n}",
+  "stderr_head": ""
+}

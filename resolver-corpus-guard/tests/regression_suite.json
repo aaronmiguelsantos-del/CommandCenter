@@ -1,0 +1,22 @@
+{
+  "cases": [
+    {
+      "id": "resolver_corpus_pass",
+      "command": [
+        "python3",
+        "scripts/check_resolver_corpus.py",
+        "--repo-root",
+        "..",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"schema_version\": 1",
+        "\"overall_passed\": true",
+        "\"inventory_default\"",
+        "\"prefer_repo\""
+      ]
+    }
+  ]
+}

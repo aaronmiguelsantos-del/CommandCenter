@@ -256,6 +256,54 @@ def _scenario_auto_source_resolution(repo_root: Path, usage_schema: Path, reason
         }
 
 
+def _scenario_pr_summary_artifact(repo_root: Path, usage_schema: Path, reason_codes: Path) -> Dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="skill-publisher-reg-") as td:
+        temp = Path(td)
+        source_root = _setup_source_root(temp)
+        repo_clone = _setup_repo_root(temp)
+        cmd = _publish_cmd(
+            script_path=repo_root / "skill-publisher" / "scripts" / "publish_skills.py",
+            usage_schema=usage_schema,
+            reason_codes=reason_codes,
+            source_root=source_root,
+            repo_root=repo_clone,
+            only="skill-a",
+        )
+        rc, stdout, stderr = _run(cmd, cwd=repo_root)
+        if rc != 0:
+            raise CaseError(f"publish failed unexpectedly: {stderr or stdout}")
+        report = json.loads(stdout)
+        if not isinstance(report, dict):
+            raise CaseError("publish output must be JSON object")
+
+        source_json = source_root / "data" / "publish_pr_summary.json"
+        source_md = source_root / "data" / "publish_pr_summary.md"
+        repo_json = repo_clone / "data" / "publish_pr_summary.json"
+        repo_md = repo_clone / "data" / "publish_pr_summary.md"
+        for path in [source_json, source_md, repo_json, repo_md]:
+            if not path.exists():
+                raise CaseError(f"missing publish PR summary artifact: {path}")
+
+        summary = json.loads(source_json.read_text(encoding="utf-8"))
+        if not isinstance(summary, dict):
+            raise CaseError("summary json must be object")
+        trend = summary.get("trend_status", {})
+        if not isinstance(trend, dict):
+            raise CaseError("summary missing trend_status")
+        resolver = summary.get("resolver_consistency", {})
+        if not isinstance(resolver, dict):
+            raise CaseError("summary missing resolver_consistency")
+        return {
+            "scenario": "pr_summary_artifact",
+            "publish_rc": rc,
+            "skills_targeted": summary.get("skills_targeted"),
+            "resolver_status": resolver.get("status"),
+            "trend_status": trend.get("status"),
+            "source_json_exists": source_json.exists(),
+            "repo_json_exists": repo_json.exists(),
+        }
+
+
 def parse_args(argv: List[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Run skill-publisher regression case")
     p.add_argument(
@@ -266,6 +314,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
             "usage_event_append",
             "failure_reason_code",
             "auto_source_resolution",
+            "pr_summary_artifact",
         ],
     )
     return p.parse_args(argv)
@@ -287,6 +336,8 @@ def main(argv: List[str]) -> int:
         result = _scenario_usage_event_append(repo_root, usage_schema, reason_codes)
     elif args.scenario == "auto_source_resolution":
         result = _scenario_auto_source_resolution(repo_root, usage_schema, reason_codes)
+    elif args.scenario == "pr_summary_artifact":
+        result = _scenario_pr_summary_artifact(repo_root, usage_schema, reason_codes)
     else:
         result = _scenario_failure_reason_code(repo_root, usage_schema, reason_codes)
 
