@@ -32,6 +32,7 @@ jobs:
 
       - name: Portfolio operator gate (export)
         id: gate
+        if: always()
         run: |
           rm -rf /tmp/portfolio_gate_export
           mkdir -p /tmp/portfolio_gate_export
@@ -43,6 +44,12 @@ jobs:
             --export-path /tmp/portfolio_gate_export \
             > /tmp/portfolio_gate_export/stdout.json
           code=$?
+          if [ ! -f /tmp/portfolio_gate_export/stdout.json ]; then
+            echo "{\"status\":\"missing_stdout\",\"reason\":\"portfolio gate command did not emit stdout\"}" > /tmp/portfolio_gate_export/stdout.json
+          fi
+          if [ ! -f /tmp/portfolio_gate_export/bundle_meta.json ]; then
+            echo "{\"status\":\"missing_bundle_meta\",\"exit_code\":${code}}" > /tmp/portfolio_gate_export/bundle_meta.json
+          fi
           echo "exit_code=$code" >> $GITHUB_OUTPUT
           echo "Gate exit code: $code"
           exit $code
@@ -58,4 +65,4 @@ jobs:
             /tmp/portfolio_gate_export/portfolio_snapshot_latest.json
             /tmp/portfolio_gate_export/portfolio_snapshot_diff.json
             /tmp/portfolio_gate_export/stdout.json
-          if-no-files-found: error
+          if-no-files-found: warn
