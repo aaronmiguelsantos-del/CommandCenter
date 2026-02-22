@@ -62,3 +62,40 @@ Status mapping:
 - `red`: strict failed (exit 2 or 4)
 - `yellow`: regression (exit 3) OR score < 90
 - `green`: clean + score >= 90
+
+## report portfolio-snapshot (v3.6.0)
+
+Portfolio-level snapshot ledger for `operator portfolio-gate` output.
+
+Ledger default:
+- `data/snapshots/portfolio_snapshot_history.jsonl`
+
+Write snapshot (captures portfolio-gate output then appends to ledger):
+
+```bash
+python -m app.main report portfolio-snapshot --write --json \
+  --repos-map data/portfolio/repos.json \
+  --hide-samples --strict --enforce-sla --jobs 4
+```
+
+Tail:
+
+```bash
+python -m app.main report portfolio-snapshot tail --json --n 5
+```
+
+Stats:
+
+```bash
+python -m app.main report portfolio-snapshot stats --json --days 7
+```
+
+Diff:
+
+```bash
+python -m app.main report portfolio-snapshot diff --json --a prev --b latest
+```
+
+Determinism (tests / CI):
+
+Use `--captured-at 2026-02-22T00:00:00+00:00` to pin timestamps.

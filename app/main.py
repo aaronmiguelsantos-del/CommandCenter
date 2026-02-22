@@ -12,6 +12,13 @@ from core.export import export_bundle
 from core.graph import build_graph, graph_as_json, render_graph_text
 from core.health import compute_and_write_health, compute_health_for_system
 from core.portfolio_gate import run_portfolio_gate
+from core.portfolio_snapshot import (
+    capture_portfolio_snapshot,
+    stats_portfolio_snapshots,
+    tail_portfolio_snapshots,
+    write_portfolio_snapshot,
+)
+from core.portfolio_snapshot_diff import diff_portfolio_snapshots
 from core.registry import load_registry, load_registry_systems, registry_path, upsert_system
 from core.snapshot import build_snapshot_ledger_entry, compute_stats, run_snapshot_loop, tail_snapshots, write_snapshot_ledger
 from core.snapshot_diff import render_snapshot_diff_pretty, snapshot_diff_from_ledger
@@ -143,6 +150,82 @@ def build_parser() -> argparse.ArgumentParser:
     report_snapshot_diff.add_argument("--json", action="store_true", help="Emit JSON.")
     report_snapshot_diff.add_argument("--pretty", action="store_true", help="Emit human-readable table output.")
     report_snapshot_diff.add_argument("--as-of", default=None, help="Replay mode timestamp in ISO8601.")
+
+    # report portfolio-snapshot
+    report_portfolio_snapshot = report_sub.add_parser(
+        "portfolio-snapshot",
+        help="Portfolio snapshot ledger: write/tail/stats/diff/run",
+    )
+    report_portfolio_snapshot.add_argument("--json", action="store_true", help="Emit JSON payload to stdout")
+    report_portfolio_snapshot.add_argument(
+        "--ledger",
+        default="data/snapshots/portfolio_snapshot_history.jsonl",
+        help="Portfolio ledger path (jsonl)",
+    )
+    report_portfolio_snapshot.add_argument("--as-of", default=None, help="Filter ledger to snapshots <= as-of ISO8601")
+    report_portfolio_snapshot.add_argument(
+        "--captured-at",
+        default=None,
+        help="Override captured_at for determinism (ISO8601). Default: now UTC.",
+    )
+
+    # policy args passed to portfolio-gate capture
+    report_portfolio_snapshot.add_argument("--repos", nargs="+", default=None)
+    report_portfolio_snapshot.add_argument("--repos-file", default=None)
+    report_portfolio_snapshot.add_argument("--repos-map", default=None)
+    report_portfolio_snapshot.add_argument("--allow-missing", action="store_true")
+    report_portfolio_snapshot.add_argument("--hide-samples", action="store_true")
+    report_portfolio_snapshot.add_argument("--strict", action="store_true")
+    report_portfolio_snapshot.add_argument("--enforce-sla", action="store_true")
+    report_portfolio_snapshot.add_argument("--jobs", type=int, default=1)
+    report_portfolio_snapshot.add_argument("--fail-fast", action="store_true")
+    report_portfolio_snapshot.add_argument("--max-repos", type=int, default=None)
+    report_portfolio_snapshot.add_argument(
+        "--export-mode",
+        choices=["portfolio-only", "with-repo-gates"],
+        default="portfolio-only",
+    )
+    report_portfolio_snapshot.add_argument(
+        "--write",
+        action="store_true",
+        help="Append a new snapshot to the portfolio ledger",
+    )
+
+    report_portfolio_snapshot_sub = report_portfolio_snapshot.add_subparsers(dest="portfolio_snapshot_command")
+
+    report_portfolio_snapshot_tail = report_portfolio_snapshot_sub.add_parser("tail", help="Tail portfolio snapshot ledger")
+    report_portfolio_snapshot_tail.add_argument("--json", action="store_true", help="Emit JSON payload to stdout")
+    report_portfolio_snapshot_tail.add_argument(
+        "--ledger",
+        default="data/snapshots/portfolio_snapshot_history.jsonl",
+        help="Portfolio ledger path (jsonl)",
+    )
+    report_portfolio_snapshot_tail.add_argument("--as-of", default=None, help="Filter ledger to snapshots <= as-of ISO8601")
+    report_portfolio_snapshot_tail.add_argument("--n", type=int, default=5)
+
+    report_portfolio_snapshot_stats = report_portfolio_snapshot_sub.add_parser("stats", help="Stats for portfolio snapshot ledger")
+    report_portfolio_snapshot_stats.add_argument("--json", action="store_true", help="Emit JSON payload to stdout")
+    report_portfolio_snapshot_stats.add_argument(
+        "--ledger",
+        default="data/snapshots/portfolio_snapshot_history.jsonl",
+        help="Portfolio ledger path (jsonl)",
+    )
+    report_portfolio_snapshot_stats.add_argument("--as-of", default=None, help="Filter ledger to snapshots <= as-of ISO8601")
+    report_portfolio_snapshot_stats.add_argument("--days", type=int, default=7)
+
+    report_portfolio_snapshot_diff = report_portfolio_snapshot_sub.add_parser(
+        "diff",
+        help="Diff two portfolio snapshots from ledger",
+    )
+    report_portfolio_snapshot_diff.add_argument("--json", action="store_true", help="Emit JSON payload to stdout")
+    report_portfolio_snapshot_diff.add_argument(
+        "--ledger",
+        default="data/snapshots/portfolio_snapshot_history.jsonl",
+        help="Portfolio ledger path (jsonl)",
+    )
+    report_portfolio_snapshot_diff.add_argument("--as-of", default=None, help="Filter ledger to snapshots <= as-of ISO8601")
+    report_portfolio_snapshot_diff.add_argument("--a", default="prev")
+    report_portfolio_snapshot_diff.add_argument("--b", default="latest")
 
 
     report_graph = report_sub.add_parser("graph", help="Print dependency graph (text or JSON).")
@@ -1183,6 +1266,78 @@ def main(argv: Sequence[str] | None = None) -> int:
                 write=args.write,
                 as_json=args.json,
             )
+        if args.report_command == "portfolio-snapshot":
+            if bool(getattr(args, "write", False)):
+                snapshot = capture_portfolio_snapshot(
+                    repos=args.repos,
+                    repos_file=args.repos_file,
+                    repos_map=args.repos_map,
+                    allow_missing=bool(args.allow_missing),
+                    hide_samples=bool(args.hide_samples),
+                    strict=bool(args.strict),
+                    enforce_sla=bool(args.enforce_sla),
+                    as_of=args.as_of,
+                    jobs=int(args.jobs),
+                    fail_fast=bool(args.fail_fast),
+                    max_repos=args.max_repos,
+                    export_mode=str(args.export_mode),
+                    captured_at=args.captured_at,
+                )
+                out = write_portfolio_snapshot(
+                    ledger_path=str(args.ledger),
+                    snapshot=snapshot,
+                )
+                if bool(args.json):
+                    sys.stdout.write(json.dumps(out, sort_keys=True))
+                    sys.stdout.write("\n")
+                else:
+                    print(json.dumps(out, indent=2, sort_keys=True))
+                return 0
+
+            portfolio_snapshot_command = getattr(args, "portfolio_snapshot_command", None)
+            if portfolio_snapshot_command == "tail":
+                out = tail_portfolio_snapshots(
+                    ledger_path=str(args.ledger),
+                    n=int(args.n),
+                    as_of=args.as_of,
+                )
+                if bool(args.json):
+                    sys.stdout.write(json.dumps(out, sort_keys=True))
+                    sys.stdout.write("\n")
+                else:
+                    print(json.dumps(out, indent=2, sort_keys=True))
+                return 0
+
+            if portfolio_snapshot_command == "stats":
+                out = stats_portfolio_snapshots(
+                    ledger_path=str(args.ledger),
+                    days=int(args.days),
+                    as_of=args.as_of,
+                )
+                if bool(args.json):
+                    sys.stdout.write(json.dumps(out, sort_keys=True))
+                    sys.stdout.write("\n")
+                else:
+                    print(json.dumps(out, indent=2, sort_keys=True))
+                return 0
+
+            if portfolio_snapshot_command == "diff":
+                # local import keeps this helper surface intentionally small
+                from core.portfolio_snapshot import _filter_as_of, _read_jsonl, _ref_select
+
+                rows = _read_jsonl(Path(str(args.ledger)).expanduser().resolve())
+                rows = _filter_as_of(rows, args.as_of)
+                a_entry = _ref_select(rows, str(args.a))
+                b_entry = _ref_select(rows, str(args.b))
+                out = diff_portfolio_snapshots(a_entry, b_entry)
+                if bool(args.json):
+                    sys.stdout.write(json.dumps(out, sort_keys=True))
+                    sys.stdout.write("\n")
+                else:
+                    print(json.dumps(out, indent=2, sort_keys=True))
+                return 0
+
+            raise SystemExit("portfolio-snapshot requires --write or a subcommand (tail|stats|diff)")
         if args.report_command == "export":
             return _emit_report_export(
                 out_dir=args.out,
