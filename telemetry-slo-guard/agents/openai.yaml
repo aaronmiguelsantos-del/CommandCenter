@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Telemetry SLO Guard
+  short_description: CI gate for skill success-rate and latency SLOs from usage telemetry.
+  default_prompt: Check telemetry SLOs for key skills and fail if thresholds are violated.

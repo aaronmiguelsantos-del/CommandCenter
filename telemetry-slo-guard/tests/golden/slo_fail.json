@@ -1,0 +1,7 @@
+{
+  "rc": 2,
+  "stdout_sha256": "c91a5deef194fb7b759420fcb49c0fb02b492c417b462206a7209b08061f382d",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"schema_version\": 1,\n  \"events_total\": 5,\n  \"window\": 10,\n  \"skills\": [\n    {\n      \"skill\": \"usage-failure-triage\",\n      \"window\": 10,\n      \"invocations\": 3,\n      \"successes\": 2,\n      \"success_rate\": 0.6667,\n      \"p95_duration_ms\": 1700,\n      \"trend_enabled\": false,\n      \"thresholds\": {\n        \"min_invocations\": 3,\n        \"min_success_rate\": 0.9,\n        \"max_p95_duration_ms\": 2000\n      },\n      \"trend\": {\n        \"enabled\": false,\n        \"trend_windows\": 0,\n        \"windows_evaluated\": 0,\n        \"max_success_rate_drop\": 1.0,\n        \"max_p95_increase_ms\": 2000000000,\n        \"deltas\": [],\n        \"violations\": []\n      }\n    },\n    {\n      \"skill\": \"roadmap-pr-prep\",",
+  "stderr_head": ""
+}

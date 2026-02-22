@@ -24,6 +24,10 @@ Always end with `Next upgrades (3 max)` and mark one as highest leverage.
 ```bash
 python3 scripts/publish_skills.py --source-root /absolute/path/to/skills --repo-root /absolute/path/to/repo-clone
 ```
+Auto-resolve source root when scan path is wrong:
+```bash
+python3 scripts/publish_skills.py --source-root /absolute/path/to/search-root --auto-source-root --prefer-repo-root --repo-root /absolute/path/to/repo-clone --json
+```
 Run strict critical regressions first:
 ```bash
 make regression-strict

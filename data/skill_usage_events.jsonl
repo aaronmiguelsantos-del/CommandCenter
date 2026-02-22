@@ -5,3 +5,4 @@
 {"context": "regression-strict", "duration_ms": 1155, "skill": "skill-regression-runner", "source": "make-publish-skills", "status": "success", "timestamp_utc": "2026-02-16T13:37:26.095470+00:00"}
 {"context": "publish", "duration_ms": 6, "skill": "skill-telemetry-instrumentor", "source": "skill-publisher", "status": "success", "timestamp_utc": "2026-02-16T13:37:26.200628+00:00"}
 {"context": "publish", "duration_ms": 61, "skill": "skill-publisher", "source": "make-publish-skills", "status": "success", "timestamp_utc": "2026-02-16T13:37:26.209725+00:00"}
+{"context": "publish", "duration_ms": 72, "skill": "skill-name-resolver", "source": "skill-publisher", "status": "success", "timestamp_utc": "2026-02-22T21:45:26.866326+00:00"}

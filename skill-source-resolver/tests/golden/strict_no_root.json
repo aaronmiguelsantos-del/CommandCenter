@@ -1,0 +1,7 @@
+{
+  "rc": 2,
+  "stdout_sha256": "04239d6fc4ceb056abfa6ab2705fafeb03baf05116657c1fd6c0cdb85c6d9f9a",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"schema_version\": 1,\n  \"start\": \"/Users/aaronsantos/Skill Builder/repo-bootstrapper-repo/skill-source-resolver/tests/fixtures/workspace/empty-root\",\n  \"effective_start\": \"/Users/aaronsantos/Skill Builder/repo-bootstrapper-repo/skill-source-resolver/tests/fixtures/workspace/empty-root\",\n  \"max_depth\": 1,\n  \"min_skills\": 1,\n  \"include_ancestor_search\": false,\n  \"prefer_repo_root\": false,\n  \"resolved\": false,\n  \"resolved_root\": \"\",\n  \"skills_count\": 0,\n  \"skills\": [],\n  \"seed_roots\": [\n    \"/Users/aaronsantos/Skill Builder/repo-bootstrapper-repo/skill-source-resolver/tests/fixtures/workspace/empty-root\"\n  ],\n  \"candidates_considered\": [\n    {\n      \"path\": \"/Users/aaronsantos/Skill Builder/repo-bootstrapper-repo/skill-source-resolver/tests/fixtures/workspace/empty-root\",\n      \"skills_count\": 0,\n      \"skills_preview\": [],\n      \"score\": 0,\n      \"seed_root\": \"/Users/aaronsantos/Skill Builder/repo-bootstrapper-repo/skill-source-resolver/tests/fixtures/workspace/empty-root\",\n      \"is_installed_inventory\": false\n    }\n  ]\n}",
+  "stderr_head": ""
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "window": 10,
+  "skills": [
+    {
+      "skill": "usage-failure-triage",
+      "min_invocations": 3,
+      "min_success_rate": 0.9,
+      "max_p95_duration_ms": 2000
+    },
+    {
+      "skill": "roadmap-pr-prep",
+      "min_invocations": 2,
+      "min_success_rate": 1.0,
+      "max_p95_duration_ms": 1000
+    }
+  ]
+}

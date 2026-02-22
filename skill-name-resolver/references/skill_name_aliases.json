@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "aliases": [
+    {
+      "alias": "publisher",
+      "skill": "skill-publisher"
+    },
+    {
+      "alias": "triage",
+      "skill": "usage-failure-triage"
+    },
+    {
+      "alias": "regressions",
+      "skill": "skill-regression-runner"
+    },
+    {
+      "alias": "telemetry",
+      "skill": "skill-telemetry-instrumentor"
+    }
+  ]
+}

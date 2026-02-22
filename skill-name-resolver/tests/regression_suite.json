@@ -1,0 +1,59 @@
+{
+  "cases": [
+    {
+      "id": "alias_resolution",
+      "command": [
+        "python3",
+        "scripts/resolve_skill_names.py",
+        "--source-root",
+        "tests/fixtures/source_root",
+        "--requested",
+        "skill_a,publisher",
+        "--aliases",
+        "tests/fixtures/aliases.json",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"ok\": true",
+        "\"skill-a\"",
+        "\"skill-publisher\"",
+        "\"aliases_applied\""
+      ]
+    },
+    {
+      "id": "unknown_suggestion",
+      "command": [
+        "python3",
+        "scripts/resolve_skill_names.py",
+        "--source-root",
+        "tests/fixtures/source_root",
+        "--requested",
+        "skil-publiser",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 2,
+      "expect_stdout_contains": [
+        "\"ok\": false",
+        "\"input\": \"skil-publiser\"",
+        "\"skill-publisher\""
+      ]
+    },
+    {
+      "id": "shared_resolver_smoke",
+      "command": [
+        "python3",
+        "tests/run_shared_resolver_smoke.py",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"consistent\": true",
+        "\"skill-publisher\"",
+        "\"usage-failure-triage\""
+      ]
+    }
+  ]
+}

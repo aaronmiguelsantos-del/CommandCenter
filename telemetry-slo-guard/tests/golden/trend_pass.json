@@ -1,0 +1,7 @@
+{
+  "rc": 0,
+  "stdout_sha256": "5c7a5dd21d5d3a5fc639fdbabff8224d80c93d080a52e32627ab5f84056da4ae",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"schema_version\": 1,\n  \"events_total\": 6,\n  \"window\": 2,\n  \"skills\": [\n    {\n      \"skill\": \"usage-failure-triage\",\n      \"window\": 2,\n      \"invocations\": 2,\n      \"successes\": 1,\n      \"success_rate\": 0.5,\n      \"p95_duration_ms\": 240,\n      \"trend_enabled\": true,\n      \"thresholds\": {\n        \"min_invocations\": 2,\n        \"min_success_rate\": 0.4,\n        \"max_p95_duration_ms\": 300\n      },\n      \"trend\": {\n        \"enabled\": true,\n        \"trend_windows\": 3,\n        \"windows_evaluated\": 3,\n        \"max_success_rate_drop\": 0.7,\n        \"max_p95_increase_ms\": 200,\n        \"deltas\": [\n          {\n            \"from_window\": 1,\n            \"to_window\": 2,\n            \"success_rate_drop\": 0.5,\n            \"p95_increase_ms\": 70",
+  "stderr_head": ""
+}

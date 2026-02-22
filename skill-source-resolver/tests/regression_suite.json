@@ -1,0 +1,70 @@
+{
+  "cases": [
+    {
+      "id": "resolve_best_root",
+      "command": [
+        "python3",
+        "scripts/resolve_skill_source.py",
+        "--start",
+        "tests/fixtures/workspace",
+        "--max-depth",
+        "3",
+        "--min-skills",
+        "1",
+        "--no-ancestor-search",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"resolved\": true",
+        "skills-root",
+        "\"skills_count\": 2"
+      ]
+    },
+    {
+      "id": "strict_no_root",
+      "command": [
+        "python3",
+        "scripts/resolve_skill_source.py",
+        "--start",
+        "tests/fixtures/workspace/empty-root",
+        "--max-depth",
+        "1",
+        "--min-skills",
+        "1",
+        "--no-ancestor-search",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 2,
+      "expect_stdout_contains": [
+        "\"resolved\": false",
+        "\"resolved_root\": \"\""
+      ]
+    },
+    {
+      "id": "prefer_repo_root",
+      "command": [
+        "python3",
+        "scripts/resolve_skill_source.py",
+        "--start",
+        "tests/fixtures/prefer-root",
+        "--max-depth",
+        "2",
+        "--min-skills",
+        "1",
+        "--no-ancestor-search",
+        "--prefer-repo-root",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"prefer_repo_root\": true",
+        "source-repo",
+        "\"resolved\": true"
+      ]
+    }
+  ]
+}

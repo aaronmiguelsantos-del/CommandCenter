@@ -1,0 +1,6 @@
+{"timestamp_utc":"2026-02-20T09:00:00+00:00","skill":"usage-failure-triage","status":"success","duration_ms":100,"source":"nightly-local","context":"triage"}
+{"timestamp_utc":"2026-02-20T09:01:00+00:00","skill":"usage-failure-triage","status":"success","duration_ms":110,"source":"nightly-local","context":"triage"}
+{"timestamp_utc":"2026-02-20T09:02:00+00:00","skill":"usage-failure-triage","status":"success","duration_ms":140,"source":"nightly-local","context":"triage"}
+{"timestamp_utc":"2026-02-20T09:03:00+00:00","skill":"usage-failure-triage","status":"failure","duration_ms":180,"source":"nightly-local","context":"triage","reason_code":"triage_failed","error_class":"runtime"}
+{"timestamp_utc":"2026-02-20T09:04:00+00:00","skill":"usage-failure-triage","status":"success","duration_ms":200,"source":"nightly-local","context":"triage"}
+{"timestamp_utc":"2026-02-20T09:05:00+00:00","skill":"usage-failure-triage","status":"failure","duration_ms":240,"source":"nightly-local","context":"triage","reason_code":"triage_failed","error_class":"runtime"}

@@ -47,6 +47,22 @@
         "\"reason_code\": \"unknown_skill\"",
         "\"error_class\": \"input\""
       ]
+    },
+    {
+      "id": "auto_source_resolution",
+      "command": [
+        "python3",
+        "tests/run_regression_case.py",
+        "--scenario",
+        "auto_source_resolution"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"scenario\": \"auto_source_resolution\"",
+        "\"publish_rc\": 0",
+        "\"source_resolution_used\": true",
+        "\"skill-a\""
+      ]
     }
   ]
 }

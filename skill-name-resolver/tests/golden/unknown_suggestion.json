@@ -1,0 +1,7 @@
+{
+  "rc": 2,
+  "stdout_sha256": "d32e27b9fb3b98b857acc9b52389e0e11c26edb5a8bdedd63411ce58d8d4aeeb",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_head": "{\n  \"schema_version\": 1,\n  \"source_root\": \"/Users/aaronsantos/Skill Builder/repo-bootstrapper-repo/skill-name-resolver/tests/fixtures/source_root\",\n  \"available_count\": 2,\n  \"available\": [\n    \"skill-a\",\n    \"skill-publisher\"\n  ],\n  \"requested\": [\n    \"skil-publiser\"\n  ],\n  \"resolved\": [],\n  \"unknown\": [\n    {\n      \"input\": \"skil-publiser\",\n      \"normalized\": \"skil-publiser\",\n      \"suggestions\": [\n        \"skill-publisher\"\n      ]\n    }\n  ],\n  \"aliases_applied\": [],\n  \"ok\": false,\n  \"strict\": true\n}",
+  "stderr_head": ""
+}

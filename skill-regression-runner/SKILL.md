@@ -24,6 +24,10 @@ Always end with `Next upgrades (3 max)` and mark one as highest leverage.
 ```bash
 python3 scripts/run_skill_regressions.py --source-root /absolute/path/to/skills
 ```
+Auto-resolve source root when path points to the wrong worktree:
+```bash
+python3 scripts/run_skill_regressions.py --source-root /absolute/path/to/search-root --auto-source-root --prefer-repo-root --strict --json
+```
 Run only selected skills:
 ```bash
 python3 scripts/run_skill_regressions.py --source-root /absolute/path/to/skills --only skill-a,skill-b

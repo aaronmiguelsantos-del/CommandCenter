@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Skill Name Resolver
+  short_description: Validate and resolve skill name lists with aliases and typo hints.
+  default_prompt: Resolve this list of skill names and fail if any are unknown.

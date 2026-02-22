@@ -1,6 +1,8 @@
-.PHONY: roadmap-pr rollup-contract verify-roadmap regression-strict publish-skills nightly-local nightly-local-check telemetry-coverage
+.PHONY: roadmap-pr rollup-contract verify-roadmap regression-strict publish-skills nightly-local nightly-local-check telemetry-coverage telemetry-slo resolve-skill-source resolve-skill-names resolver-smoke
 EVENTS ?= data/skill_usage_events.jsonl
 NIGHTLY_EVENTS ?= /tmp/nightly-telemetry/skill_usage_events.jsonl
+SOURCE_ROOT ?= .
+SLO_CONFIG ?= telemetry-slo-guard/references/default_slo_config.json
 
 roadmap-pr:
 	python3 roadmap-pr-prep/scripts/prepare_roadmap_pr.py \
@@ -30,8 +32,10 @@ verify-roadmap:
 
 regression-strict:
 	python3 skill-regression-runner/scripts/run_skill_regressions.py \
-		--source-root . \
-		--only roadmap-pr-prep,usage-failure-triage,skill-publisher,skill-telemetry-instrumentor \
+		--source-root "$(SOURCE_ROOT)" \
+		--auto-source-root \
+		--prefer-repo-root \
+		--only roadmap-pr-prep,usage-failure-triage,skill-publisher,skill-telemetry-instrumentor,skill-name-resolver,skill-source-resolver,telemetry-slo-guard \
 		--strict \
 		--json
 
@@ -59,7 +63,9 @@ publish-skills:
 		--json \
 		-- \
 		python3 skill-publisher/scripts/publish_skills.py \
-			--source-root . \
+			--source-root "$(SOURCE_ROOT)" \
+			--auto-source-root \
+			--prefer-repo-root \
 			--repo-root "$(REPO_ROOT)" \
 			$(PUBLISH_ARGS)
 
@@ -107,3 +113,30 @@ telemetry-coverage:
 		--last-n 20 \
 		--strict \
 		--json
+
+telemetry-slo:
+	python3 telemetry-slo-guard/scripts/check_telemetry_slo.py \
+		--events "$(EVENTS)" \
+		--config "$(SLO_CONFIG)" \
+		--strict \
+		--json
+
+resolve-skill-source:
+	python3 skill-source-resolver/scripts/resolve_skill_source.py \
+		--start "$(SOURCE_ROOT)" \
+		--max-depth 4 \
+		--min-skills 1 \
+		--prefer-repo-root \
+		--strict \
+		--json
+
+resolve-skill-names:
+	@if [ -z "$(ONLY)" ]; then echo "error: set ONLY=skill-a,skill-b" >&2; exit 1; fi
+	python3 skill-name-resolver/scripts/resolve_skill_names.py \
+		--source-root "$(SOURCE_ROOT)" \
+		--requested "$(ONLY)" \
+		--strict \
+		--json
+
+resolver-smoke:
+	python3 skill-name-resolver/tests/run_shared_resolver_smoke.py --json

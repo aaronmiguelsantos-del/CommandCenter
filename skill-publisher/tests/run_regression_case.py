@@ -207,6 +207,55 @@ def _scenario_failure_reason_code(repo_root: Path, usage_schema: Path, reason_co
         }
 
 
+def _scenario_auto_source_resolution(repo_root: Path, usage_schema: Path, reason_codes: Path) -> Dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="skill-publisher-reg-") as td:
+        temp = Path(td)
+        source_root = _setup_source_root(temp)
+        wrong_root = temp / "wrong-root"
+        wrong_root.mkdir(parents=True, exist_ok=True)
+        repo_clone = _setup_repo_root(temp)
+        cmd = [
+            "python3",
+            str(repo_root / "skill-publisher" / "scripts" / "publish_skills.py"),
+            "--source-root",
+            str(wrong_root),
+            "--auto-source-root",
+            "--repo-root",
+            str(repo_clone),
+            "--usage-schema",
+            str(usage_schema),
+            "--reason-codes",
+            str(reason_codes),
+            "--skip-version-bump",
+            "--skip-regressions",
+            "--skip-rollup-contract",
+            "--only",
+            "skill-a",
+            "--json",
+        ]
+        rc, stdout, stderr = _run(cmd, cwd=repo_root)
+        if rc != 0:
+            raise CaseError(f"publish failed unexpectedly: {stderr or stdout}")
+        report = json.loads(stdout)
+        if not isinstance(report, dict):
+            raise CaseError("publish output must be JSON object")
+        resolution = report.get("source_resolution", {})
+        if not isinstance(resolution, dict):
+            raise CaseError("source_resolution must be object")
+        resolved_root = Path(str(report.get("source_root", ""))).expanduser().resolve()
+        if resolved_root != source_root.resolve():
+            raise CaseError(f"expected resolved source_root={source_root.resolve()}, got {resolved_root}")
+        if resolution.get("used") is not True:
+            raise CaseError("expected source_resolution.used=true")
+        return {
+            "scenario": "auto_source_resolution",
+            "publish_rc": rc,
+            "resolved_source_root_name": resolved_root.name,
+            "source_resolution_used": resolution.get("used"),
+            "skills_targeted": report.get("skills_targeted"),
+        }
+
+
 def parse_args(argv: List[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Run skill-publisher regression case")
     p.add_argument(
@@ -216,6 +265,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
             "scoped_only_publish",
             "usage_event_append",
             "failure_reason_code",
+            "auto_source_resolution",
         ],
     )
     return p.parse_args(argv)
@@ -235,6 +285,8 @@ def main(argv: List[str]) -> int:
         result = _scenario_scoped_only_publish(repo_root, usage_schema, reason_codes)
     elif args.scenario == "usage_event_append":
         result = _scenario_usage_event_append(repo_root, usage_schema, reason_codes)
+    elif args.scenario == "auto_source_resolution":
+        result = _scenario_auto_source_resolution(repo_root, usage_schema, reason_codes)
     else:
         result = _scenario_failure_reason_code(repo_root, usage_schema, reason_codes)
 

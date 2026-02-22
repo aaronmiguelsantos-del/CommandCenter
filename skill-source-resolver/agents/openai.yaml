@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Skill Source Resolver
+  short_description: Find the correct local source root for skill publish/regression flows.
+  default_prompt: Resolve the best source root that contains publishable skills.

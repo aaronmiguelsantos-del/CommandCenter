@@ -16,6 +16,9 @@ class RoadmapPrepError(Exception):
     pass
 
 
+DEFAULT_NAME_RESOLVER_REL = Path("skill-name-resolver") / "scripts" / "resolve_skill_names.py"
+
+
 def _parse_csv(raw: str) -> List[str]:
     seen = set()
     out: List[str] = []
@@ -46,6 +49,70 @@ def _load_json(path: Path) -> Dict[str, Any]:
     if not isinstance(obj, dict):
         raise RoadmapPrepError(f"json file must be object: {path}")
     return obj
+
+
+def _parse_json_output(raw: str, context: str) -> Dict[str, Any]:
+    try:
+        obj = json.loads(raw)
+    except Exception as err:
+        raise RoadmapPrepError(f"{context} returned invalid json: {err}") from err
+    if not isinstance(obj, dict):
+        raise RoadmapPrepError(f"{context} returned invalid json payload")
+    return obj
+
+
+def _format_unknown_rows(rows: List[Dict[str, Any]]) -> str:
+    parts: List[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw = str(row.get("input", "")).strip()
+        if not raw:
+            continue
+        suggestions = row.get("suggestions", [])
+        if isinstance(suggestions, list):
+            hints = [str(v) for v in suggestions if isinstance(v, str) and v]
+        else:
+            hints = []
+        if hints:
+            parts.append(f"{raw} (did you mean: {', '.join(hints[:3])})")
+        else:
+            parts.append(raw)
+    return "; ".join(parts)
+
+
+def _resolve_only_skills(repo_root: Path, only_skills: List[str]) -> List[str]:
+    if not only_skills:
+        return only_skills
+    resolver = repo_root / DEFAULT_NAME_RESOLVER_REL
+    if not resolver.exists():
+        return only_skills
+    cmd = [
+        "python3",
+        str(resolver),
+        "--source-root",
+        str(repo_root),
+        "--requested",
+        ",".join(only_skills),
+        "--strict",
+        "--json",
+    ]
+    rc, out, err = _run(cmd, cwd=repo_root)
+    if rc == 0:
+        payload = _parse_json_output(out, "skill-name-resolver")
+        resolved = payload.get("resolved", [])
+        if not isinstance(resolved, list) or not all(isinstance(x, str) for x in resolved):
+            raise RoadmapPrepError("skill-name-resolver returned invalid resolved list")
+        return [x for x in resolved if x]
+    if rc == 2:
+        payload = _parse_json_output(out, "skill-name-resolver")
+        unknown = payload.get("unknown", [])
+        if isinstance(unknown, list):
+            detail = _format_unknown_rows([r for r in unknown if isinstance(r, dict)])
+            if detail:
+                raise RoadmapPrepError(f"--only contains unknown skills: {detail}")
+        raise RoadmapPrepError("--only contains unknown skills")
+    raise RoadmapPrepError(f"skill-name-resolver failed: {err or out}")
 
 
 def _summary_markdown(rollup: Dict[str, Any], stamp: str) -> str:
@@ -287,6 +354,7 @@ def run(
     events_override: Path | None,
     stamp_override: str,
 ) -> Dict[str, Any]:
+    only_skills = _resolve_only_skills(repo_root, only_skills)
     releases = releases_override if releases_override is not None else repo_root / "data" / "skill_releases.jsonl"
     events = events_override if events_override is not None else repo_root / "data" / "skill_usage_events.jsonl"
     if releases_override is None and not releases.exists():

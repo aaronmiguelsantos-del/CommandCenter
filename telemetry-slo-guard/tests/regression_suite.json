@@ -1,0 +1,80 @@
+{
+  "cases": [
+    {
+      "id": "slo_pass",
+      "command": [
+        "python3",
+        "scripts/check_telemetry_slo.py",
+        "--events",
+        "tests/fixtures/events_slo.jsonl",
+        "--config",
+        "tests/fixtures/slo_config_pass.json",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"passed\": true",
+        "\"usage-failure-triage\"",
+        "\"roadmap-pr-prep\""
+      ]
+    },
+    {
+      "id": "slo_fail",
+      "command": [
+        "python3",
+        "scripts/check_telemetry_slo.py",
+        "--events",
+        "tests/fixtures/events_slo.jsonl",
+        "--config",
+        "tests/fixtures/slo_config_fail.json",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 2,
+      "expect_stdout_contains": [
+        "\"passed\": false",
+        "\"type\": \"min_success_rate\"",
+        "\"usage-failure-triage\""
+      ]
+    },
+    {
+      "id": "trend_pass",
+      "command": [
+        "python3",
+        "scripts/check_telemetry_slo.py",
+        "--events",
+        "tests/fixtures/events_trend.jsonl",
+        "--config",
+        "tests/fixtures/slo_config_trend_pass.json",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 0,
+      "expect_stdout_contains": [
+        "\"passed\": true",
+        "\"trend_enabled\": true",
+        "\"trend\""
+      ]
+    },
+    {
+      "id": "trend_fail",
+      "command": [
+        "python3",
+        "scripts/check_telemetry_slo.py",
+        "--events",
+        "tests/fixtures/events_trend.jsonl",
+        "--config",
+        "tests/fixtures/slo_config_trend_fail.json",
+        "--strict",
+        "--json"
+      ],
+      "expect_exit": 2,
+      "expect_stdout_contains": [
+        "\"passed\": false",
+        "\"type\": \"trend_success_rate_drop\"",
+        "\"usage-failure-triage\""
+      ]
+    }
+  ]
+}

@@ -52,3 +52,7 @@ jobs:
       - name: Telemetry coverage gate
         run: |
           make telemetry-coverage EVENTS=/tmp/nightly-telemetry/skill_usage_events.jsonl
+
+      - name: Telemetry SLO gate
+        run: |
+          make telemetry-slo EVENTS=/tmp/nightly-telemetry/skill_usage_events.jsonl

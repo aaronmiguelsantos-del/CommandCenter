@@ -42,6 +42,11 @@
       "description": "Compute deterministic skill usage and ROI analytics from local JSONL events, including invocation counts, success rates, latency stats, and prioritized improvement rankings. Use when Codex needs measurable adoption insights for skill roadmap decisions."
     },
     {
+      "name": "skill-name-resolver",
+      "path": "skill-name-resolver",
+      "description": "Resolve skill names deterministically from CSV inputs with alias mapping and typo suggestions, and fail fast on unknown names for --only and other scoped skill flags."
+    },
+    {
       "name": "skill-publisher",
       "path": "skill-publisher",
       "description": "Validate, package, index, and publish skills from a local skills workspace into a git repo clone with deterministic checks, artifact blocking, and optional commit/push automation. Use when Codex needs to publish newly built skills to GitHub consistently."
@@ -52,6 +57,11 @@
       "description": "Run deterministic regression suites for skills, compare command outputs against golden snapshots, and fail fast on behavior drift. Use when Codex needs to prevent skill regressions before publish."
     },
     {
+      "name": "skill-source-resolver",
+      "path": "skill-source-resolver",
+      "description": "Discover and score the best local source root containing publishable skills so workflows avoid scanning the wrong worktree."
+    },
+    {
       "name": "skill-telemetry-instrumentor",
       "path": "skill-telemetry-instrumentor",
       "description": "Wrap skill commands with schema-validated usage telemetry so success/failure events are appended consistently with reason codes and error classes. Use when Codex needs end-to-end skill instrumentation without rewriting each script."
@@ -60,6 +70,11 @@
       "name": "skill-version-manager",
       "path": "skill-version-manager",
       "description": "Manage deterministic semver for skills, append release records, and store migration notes in local-first JSON artifacts. Use when Codex needs structured version bumps and release bookkeeping for skills."
+    },
+    {
+      "name": "telemetry-slo-guard",
+      "path": "telemetry-slo-guard",
+      "description": "Enforce per-skill telemetry SLOs (success rate, p95 latency, and invocation minimums) from usage events with deterministic CI exit codes."
     },
     {
       "name": "usage-failure-triage",

@@ -25,6 +25,8 @@ BLOCKED_DIRS = {"__pycache__"}
 ERROR_CLASSES = {"input", "validation", "regression", "contract", "git", "runtime"}
 DEFAULT_USAGE_SCHEMA_REL = Path("skill-adoption-analytics") / "references" / "skill_usage_events.schema.json"
 DEFAULT_REASON_CODES_REL = Path("skill-adoption-analytics") / "references" / "reason_codes.json"
+DEFAULT_NAME_RESOLVER_REL = Path("skill-name-resolver") / "scripts" / "resolve_skill_names.py"
+DEFAULT_SOURCE_RESOLVER_REL = Path("skill-source-resolver") / "scripts" / "resolve_skill_source.py"
 REQUIRED_PUBLISH_REASON_CODES = {
     "unknown_skill",
     "source_root_missing",
@@ -105,6 +107,130 @@ def _select_skills(skill_dirs: List[Path], only: List[str]) -> List[Path]:
     if missing:
         raise PublishError(f"--only contains unknown skills: {', '.join(missing)}")
     return [by_name[name] for name in only]
+
+
+def _parse_json_output(raw: str, context: str) -> Dict[str, Any]:
+    try:
+        obj = json.loads(raw)
+    except Exception as err:
+        raise PublishError(f"{context} returned invalid json: {err}") from err
+    if not isinstance(obj, dict):
+        raise PublishError(f"{context} returned invalid json payload")
+    return obj
+
+
+def _format_unknown_rows(rows: List[Dict[str, Any]]) -> str:
+    parts: List[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw = str(row.get("input", "")).strip()
+        if not raw:
+            continue
+        suggestions = row.get("suggestions", [])
+        if isinstance(suggestions, list):
+            hints = [str(v) for v in suggestions if isinstance(v, str) and v]
+        else:
+            hints = []
+        if hints:
+            parts.append(f"{raw} (did you mean: {', '.join(hints[:3])})")
+        else:
+            parts.append(raw)
+    return "; ".join(parts)
+
+
+def _resolve_only_with_name_resolver(source_root: Path, only: List[str]) -> List[str]:
+    if not only:
+        return only
+    resolver = Path(__file__).resolve().parents[2] / DEFAULT_NAME_RESOLVER_REL
+    if not resolver.exists():
+        return only
+    cmd = [
+        "python3",
+        str(resolver),
+        "--source-root",
+        str(source_root),
+        "--requested",
+        ",".join(only),
+        "--strict",
+        "--json",
+    ]
+    rc, out, err = _run(cmd, cwd=resolver.parents[2])
+    if rc == 0:
+        payload = _parse_json_output(out, "skill-name-resolver")
+        resolved = payload.get("resolved", [])
+        if not isinstance(resolved, list) or not all(isinstance(x, str) for x in resolved):
+            raise PublishError("skill-name-resolver returned invalid resolved list")
+        return [x for x in resolved if x]
+    if rc == 2:
+        payload = _parse_json_output(out, "skill-name-resolver")
+        unknown = payload.get("unknown", [])
+        if isinstance(unknown, list):
+            detail = _format_unknown_rows([r for r in unknown if isinstance(r, dict)])
+            if detail:
+                raise PublishError(f"--only contains unknown skills: {detail}")
+        raise PublishError("--only contains unknown skills")
+    raise PublishError(f"skill-name-resolver failed: {err or out}")
+
+
+def _resolve_source_root_if_needed(
+    source_root: Path,
+    auto: bool,
+    max_depth: int,
+    prefer_repo_root: bool,
+) -> Tuple[Path, Dict[str, Any]]:
+    info: Dict[str, Any] = {
+        "auto_requested": bool(auto),
+        "start": str(source_root),
+        "used": False,
+        "resolved_root": str(source_root),
+        "resolver": "none",
+    }
+    if not auto:
+        return source_root, info
+
+    if source_root.exists() and source_root.is_dir():
+        try:
+            if _discover_skills(source_root):
+                info["resolver"] = "inline-discovery"
+                return source_root, info
+        except Exception:
+            pass
+
+    resolver = Path(__file__).resolve().parents[2] / DEFAULT_SOURCE_RESOLVER_REL
+    if not resolver.exists():
+        raise PublishError(f"source resolver not found: {resolver}")
+    cmd = [
+        "python3",
+        str(resolver),
+        "--start",
+        str(source_root),
+        "--max-depth",
+        str(max_depth),
+        "--min-skills",
+        "1",
+        "--strict",
+        "--json",
+    ]
+    if prefer_repo_root:
+        cmd.append("--prefer-repo-root")
+    rc, out, err = _run(cmd, cwd=resolver.parents[2])
+    if rc != 0:
+        raise PublishError(f"source root resolution failed: {err or out}")
+    payload = _parse_json_output(out, "skill-source-resolver")
+    resolved_root = str(payload.get("resolved_root", "")).strip()
+    if not resolved_root:
+        raise PublishError("source root resolution failed: missing resolved_root")
+    resolved = Path(resolved_root).expanduser().resolve()
+    info = {
+        "auto_requested": True,
+        "start": str(source_root),
+        "used": str(resolved) != str(source_root),
+        "resolved_root": str(resolved),
+        "resolver": "skill-source-resolver",
+        "details": payload,
+    }
+    return resolved, info
 
 
 def _validate_skill_dir(skill_dir: Path) -> List[str]:
@@ -331,6 +457,10 @@ def _reason_code_from_error(err: PublishError) -> str:
     if msg.startswith("--only contains unknown skills"):
         return "unknown_skill"
     if "source root does not exist" in msg:
+        return "source_root_missing"
+    if "source root resolution failed" in msg:
+        return "source_root_missing"
+    if "source resolver not found" in msg:
         return "source_root_missing"
     if "repo root does not exist" in msg:
         return "repo_root_missing"
@@ -603,6 +733,7 @@ def publish(
     run_regressions: bool,
     bootstrap_missing_snapshots: bool,
     run_rollup_contract: bool,
+    source_resolution: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     started = time.monotonic()
     if not source_root.exists() or not source_root.is_dir():
@@ -619,7 +750,8 @@ def publish(
     all_skill_dirs = _discover_skills(source_root)
     if not all_skill_dirs:
         raise PublishError("no skill directories found")
-    skill_dirs = _select_skills(all_skill_dirs, only_skills)
+    resolved_only = _resolve_only_with_name_resolver(source_root, only_skills)
+    skill_dirs = _select_skills(all_skill_dirs, resolved_only)
 
     issues: List[str] = []
     for skill_dir in skill_dirs:
@@ -711,6 +843,7 @@ def publish(
     return {
         "schema_version": 1,
         "source_root": str(source_root),
+        "source_resolution": source_resolution or {},
         "repo_root": str(repo_root),
         "skills_discovered": [s.name for s in all_skill_dirs],
         "skills_targeted": [s.name for s in skill_dirs],
@@ -736,6 +869,22 @@ def publish(
 def parse_args(argv: List[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Publish skills into a git repo clone")
     parser.add_argument("--source-root", required=True, help="Path containing skill folders")
+    parser.add_argument(
+        "--auto-source-root",
+        action="store_true",
+        help="Resolve the best local source root when --source-root is wrong or empty",
+    )
+    parser.add_argument(
+        "--source-resolver-max-depth",
+        type=int,
+        default=4,
+        help="Directory scan depth for --auto-source-root",
+    )
+    parser.add_argument(
+        "--prefer-repo-root",
+        action="store_true",
+        help="When auto-resolving source root, prioritize git-backed source repos over installed inventories",
+    )
     parser.add_argument("--repo-root", required=True, help="Git repo clone path to publish into")
     parser.add_argument(
         "--usage-schema",
@@ -768,7 +917,17 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
 
 def main(argv: List[str]) -> int:
     args = parse_args(argv)
-    source_root = Path(args.source_root).expanduser().resolve()
+    source_root_input = Path(args.source_root).expanduser().resolve()
+    try:
+        source_root, source_resolution = _resolve_source_root_if_needed(
+            source_root_input,
+            auto=bool(args.auto_source_root),
+            max_depth=max(0, int(args.source_resolver_max_depth)),
+            prefer_repo_root=bool(args.prefer_repo_root),
+        )
+    except PublishError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 1
     repo_root = Path(args.repo_root).expanduser().resolve()
     if args.usage_schema:
         usage_schema_path = Path(args.usage_schema).expanduser().resolve()
@@ -805,6 +964,7 @@ def main(argv: List[str]) -> int:
             run_regressions=not args.skip_regressions,
             bootstrap_missing_snapshots=not args.no_bootstrap_missing_snapshots,
             run_rollup_contract=not args.skip_rollup_contract,
+            source_resolution=source_resolution,
         )
     except PublishError as err:
         reason_code = _reason_code_from_error(err)

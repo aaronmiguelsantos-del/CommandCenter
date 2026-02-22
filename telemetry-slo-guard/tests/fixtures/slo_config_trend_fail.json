@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "window": 2,
+  "skills": [
+    {
+      "skill": "usage-failure-triage",
+      "min_invocations": 2,
+      "min_success_rate": 0.4,
+      "max_p95_duration_ms": 300,
+      "trend_windows": 3,
+      "max_success_rate_drop": 0.3,
+      "max_p95_increase_ms": 200
+    }
+  ]
+}
