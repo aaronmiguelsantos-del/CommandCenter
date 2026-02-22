@@ -27,7 +27,7 @@ jobs:
         run: |
           python -m pytest -q -m "not slow"
 
-      - name: Tests (slow lane: main + schedule)
+      - name: "Tests (slow lane: main + schedule)"
         if: github.event_name == 'push' || github.event_name == 'schedule'
         run: |
           python -m pytest -q -m "slow"
