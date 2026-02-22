@@ -12,8 +12,14 @@ from typing import Any, Optional, TypedDict
 
 
 # Portfolio Gate Contract
-PORTFOLIO_GATE_SCHEMA_VERSION = "1.0"
+PORTFOLIO_GATE_SCHEMA_VERSION = "1.1"  # v3.5.0 adds summary + policy_overrides
 REPOS_MAP_SCHEMA_VERSION = "1.0"
+
+
+class RepoPolicyOverrides(TypedDict, total=False):
+    strict: bool
+    enforce_sla: bool
+    hide_samples: bool
 
 
 class RepoMapEntry(TypedDict, total=False):
@@ -22,6 +28,7 @@ class RepoMapEntry(TypedDict, total=False):
     owner: str
     required: bool
     notes: str
+    policy_overrides: RepoPolicyOverrides
 
 
 @dataclass(frozen=True)
@@ -33,6 +40,7 @@ class RepoSpec:
     owner: str
     required: bool
     notes: str
+    policy_overrides: dict[str, Any]
 
 
 # Error codes (portfolio-level typed failures)
@@ -109,15 +117,17 @@ def _repo_spec_from_path(path_str: str) -> RepoSpec:
     registry_abs = _normalize_path(registry)
 
     base = Path(repo_root_abs).name or repo_root_abs
+    h = _repo_hash(repo_root_abs)
 
     return RepoSpec(
         repo_id=base,
-        repo_hash=_repo_hash(repo_root_abs),
+        repo_hash=h,
         repo_root=repo_root_abs,
         registry_path=registry_abs,
         owner="",
         required=True,
         notes="",
+        policy_overrides={},
     )
 
 
@@ -149,6 +159,17 @@ def _load_repos_map(path: str) -> list[RepoMapEntry]:
         }
         if not entry["repo_id"] or not entry["path"]:
             raise SystemExit("repos-map invalid: each repo must include repo_id and path")
+
+        po = r.get("policy_overrides")
+        if po is not None and not isinstance(po, dict):
+            raise SystemExit("repos-map invalid: policy_overrides must be an object when present")
+        if isinstance(po, dict):
+            # Only accept known keys to stay deterministic and safe.
+            allowed = {"strict", "enforce_sla", "hide_samples"}
+            bad = set(po.keys()) - allowed
+            if bad:
+                raise SystemExit(f"repos-map invalid: unknown policy_overrides keys: {sorted(bad)}")
+            entry["policy_overrides"] = {k: bool(po[k]) for k in po.keys()}
         out.append(entry)
     return out
 
@@ -158,6 +179,8 @@ def _spec_from_map_entry(entry: RepoMapEntry) -> RepoSpec:
     repo_root_abs = _normalize_path(repo_root)
     registry_abs = _normalize_path(registry)
 
+    po = dict(entry.get("policy_overrides") or {})
+
     return RepoSpec(
         repo_id=entry["repo_id"],
         repo_hash=_repo_hash(repo_root_abs),
@@ -166,7 +189,14 @@ def _spec_from_map_entry(entry: RepoMapEntry) -> RepoSpec:
         owner=entry.get("owner", "") or "",
         required=bool(entry.get("required", True)),
         notes=entry.get("notes", "") or "",
+        policy_overrides=po,
     )
+
+
+def _resolve_bool(default: bool, overrides: dict[str, Any], key: str) -> bool:
+    if key in overrides:
+        return bool(overrides[key])
+    return bool(default)
 
 
 def _stable_strict_reasons(reasons: Any) -> list[dict[str, Any]]:
@@ -226,6 +256,7 @@ def _base_repo_result(spec: RepoSpec) -> dict[str, Any]:
             "owner": spec.owner,
             "required": bool(spec.required),
             "notes": spec.notes,
+            "policy_overrides": dict(spec.policy_overrides),
         },
         "repo_status": "ok",
         "error_code": None,
@@ -233,6 +264,7 @@ def _base_repo_result(spec: RepoSpec) -> dict[str, Any]:
         "exit_code": 0,
         "gate": {},
         "stderr": "",
+        "effective_policy": {},  # populated after resolution
     }
 
 
@@ -250,26 +282,45 @@ def _error_repo_result(spec: RepoSpec, *, code: str, msg: str) -> dict[str, Any]
 def _run_operator_gate_for_repo(
     spec: RepoSpec,
     *,
-    hide_samples: bool,
-    strict: bool,
-    enforce_sla: bool,
+    default_hide_samples: bool,
+    default_strict: bool,
+    default_enforce_sla: bool,
     as_of: Optional[str],
 ) -> dict[str, Any]:
+    # Resolve per-repo overrides
+    hide_samples = _resolve_bool(default_hide_samples, spec.policy_overrides, "hide_samples")
+    strict = _resolve_bool(default_strict, spec.policy_overrides, "strict")
+    enforce_sla = _resolve_bool(default_enforce_sla, spec.policy_overrides, "enforce_sla")
+
     # Preflight: repo root exists
     if not Path(spec.repo_root).exists():
-        return _error_repo_result(
+        rr = _error_repo_result(
             spec,
             code=ERR_REPO_PATH_NOT_FOUND,
             msg=f"repo_root not found: {spec.repo_root}",
         )
+        rr["effective_policy"] = {
+            "hide_samples": hide_samples,
+            "strict": strict,
+            "enforce_sla": enforce_sla,
+            "as_of": as_of,
+        }
+        return rr
 
     # Preflight: registry exists
     if not Path(spec.registry_path).exists():
-        return _error_repo_result(
+        rr = _error_repo_result(
             spec,
             code=ERR_REGISTRY_NOT_FOUND,
             msg=f"registry not found: {spec.registry_path}",
         )
+        rr["effective_policy"] = {
+            "hide_samples": hide_samples,
+            "strict": strict,
+            "enforce_sla": enforce_sla,
+            "as_of": as_of,
+        }
+        return rr
 
     cmd = [
         sys.executable,
@@ -303,7 +354,14 @@ def _run_operator_gate_for_repo(
             env=env,
         )
     except Exception as e:
-        return _error_repo_result(spec, code=ERR_SUBPROCESS_FAILED, msg=str(e))
+        rr = _error_repo_result(spec, code=ERR_SUBPROCESS_FAILED, msg=str(e))
+        rr["effective_policy"] = {
+            "hide_samples": hide_samples,
+            "strict": strict,
+            "enforce_sla": enforce_sla,
+            "as_of": as_of,
+        }
+        return rr
 
     stdout = (p.stdout or "").strip()
     stderr = (p.stderr or "").strip()
@@ -318,54 +376,33 @@ def _run_operator_gate_for_repo(
             rr = _error_repo_result(spec, code=ERR_INVALID_JSON, msg=f"invalid json stdout: {e}")
             rr["exit_code"] = int(p.returncode)
             rr["stderr"] = stderr
+            rr["effective_policy"] = {
+                "hide_samples": hide_samples,
+                "strict": strict,
+                "enforce_sla": enforce_sla,
+                "as_of": as_of,
+            }
             return rr
 
     rr = _base_repo_result(spec)
     rr["exit_code"] = int(p.returncode)
     rr["gate"] = _stable_gate_payload(gate_payload, int(p.returncode))
     rr["stderr"] = stderr
+    rr["effective_policy"] = {
+        "hide_samples": hide_samples,
+        "strict": strict,
+        "enforce_sla": enforce_sla,
+        "as_of": as_of,
+    }
     return rr
 
 
 def _sorted_repo_results(repo_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # Deterministic output ordering (independent of parallel completion order)
     def k(r: dict[str, Any]) -> tuple[str, str, str]:
         repo = r.get("repo") or {}
         return (str(repo.get("repo_id", "")), str(repo.get("repo_hash", "")), str(repo.get("repo_root", "")))
 
     return sorted(repo_results, key=k)
-
-
-def _portfolio_exit_code(
-    repo_results: list[dict[str, Any]],
-    *,
-    allow_missing: bool,
-) -> int:
-    strict_failed_any = False
-    regression_any = False
-
-    # Missing required repos count as regression unless allow_missing
-    for r in repo_results:
-        repo = r.get("repo") or {}
-        required = bool(repo.get("required", True))
-        status = str(r.get("repo_status", "ok"))
-        if required and status == "error" and not allow_missing:
-            regression_any = True
-
-    for r in repo_results:
-        gate = r.get("gate") or {}
-        if bool(gate.get("strict_failed", False)):
-            strict_failed_any = True
-        if bool(gate.get("regression_detected", False)):
-            regression_any = True
-
-    if strict_failed_any and regression_any:
-        return 4
-    if strict_failed_any:
-        return 2
-    if regression_any:
-        return 3
-    return 0
 
 
 def _merge_top_actions(repo_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -401,6 +438,115 @@ def _merge_top_actions(repo_results: list[dict[str, Any]]) -> list[dict[str, Any
     return out
 
 
+def _portfolio_exit_code(repo_results: list[dict[str, Any]], *, allow_missing: bool) -> int:
+    strict_failed_any = False
+    regression_any = False
+
+    # Missing required repos count as regression unless allow_missing
+    for r in repo_results:
+        repo = r.get("repo") or {}
+        required = bool(repo.get("required", True))
+        status = str(r.get("repo_status", "ok"))
+        if required and status == "error" and not allow_missing:
+            regression_any = True
+
+    for r in repo_results:
+        gate = r.get("gate") or {}
+        if bool(gate.get("strict_failed", False)):
+            strict_failed_any = True
+        if bool(gate.get("regression_detected", False)):
+            regression_any = True
+
+    if strict_failed_any and regression_any:
+        return 4
+    if strict_failed_any:
+        return 2
+    if regression_any:
+        return 3
+    return 0
+
+
+def _portfolio_status_and_score(exit_code: int, repo_results: list[dict[str, Any]], *, allow_missing: bool) -> tuple[str, int]:
+    """
+    Deterministic, simple scoring:
+    - Start at 100
+    - -60 if strict fail (2/4)
+    - -35 if regression (3/4)
+    - -10 per required repo error when not allow_missing
+    - -3 per optional repo error
+    Clamp 0..100
+    Status:
+    - green: exit 0 and score >= 90
+    - yellow: exit 0 with score < 90 OR exit 3
+    - red: exit 2 or 4
+    """
+    score = 100
+
+    if exit_code in (2, 4):
+        score -= 60
+    if exit_code in (3, 4):
+        score -= 35
+
+    for r in repo_results:
+        if str(r.get("repo_status")) != "error":
+            continue
+        repo = r.get("repo") or {}
+        required = bool(repo.get("required", True))
+        if required and not allow_missing:
+            score -= 10
+        else:
+            score -= 3
+
+    score = max(0, min(100, score))
+
+    if exit_code in (2, 4):
+        status = "red"
+    elif exit_code == 3:
+        status = "yellow"
+    else:
+        status = "green" if score >= 90 else "yellow"
+
+    return status, int(score)
+
+
+def _portfolio_summary(repo_results: list[dict[str, Any]], exit_code: int, *, allow_missing: bool) -> dict[str, Any]:
+    total = len(repo_results)
+    ok = sum(1 for r in repo_results if r.get("repo_status") == "ok")
+    err = sum(1 for r in repo_results if r.get("repo_status") == "error")
+    required_err = 0
+    optional_err = 0
+    strict_failed = 0
+    regression = 0
+
+    for r in repo_results:
+        repo = r.get("repo") or {}
+        required = bool(repo.get("required", True))
+        if r.get("repo_status") == "error":
+            if required:
+                required_err += 1
+            else:
+                optional_err += 1
+        gate = r.get("gate") or {}
+        if bool(gate.get("strict_failed", False)):
+            strict_failed += 1
+        if bool(gate.get("regression_detected", False)):
+            regression += 1
+
+    status, score = _portfolio_status_and_score(exit_code, repo_results, allow_missing=allow_missing)
+
+    return {
+        "portfolio_status": status,
+        "portfolio_score": int(score),
+        "repos_total": int(total),
+        "repos_ok": int(ok),
+        "repos_error": int(err),
+        "repos_error_required": int(required_err),
+        "repos_error_optional": int(optional_err),
+        "repos_strict_failed": int(strict_failed),
+        "repos_regression": int(regression),
+    }
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
@@ -409,17 +555,8 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _write_bundle_meta(export_dir: Path, artifacts: list[str]) -> None:
-    _write_json(export_dir / "bundle_meta.json", {"schema_version": "1.0", "artifacts": artifacts})
-
-
-def _signals_nonzero(rr: dict[str, Any], *, allow_missing: bool) -> bool:
-    gate = rr.get("gate") or {}
-    if bool(gate.get("strict_failed", False)) or bool(gate.get("regression_detected", False)):
-        return True
-    is_required_error = bool((rr.get("repo") or {}).get("required", True)) and str(rr.get("repo_status", "ok")) == "error"
-    if is_required_error and not allow_missing:
-        return True
-    return False
+    meta = {"schema_version": "1.0", "artifacts": artifacts}
+    _write_json(export_dir / "bundle_meta.json", meta)
 
 
 def run_portfolio_gate(
@@ -448,7 +585,6 @@ def run_portfolio_gate(
         entries = _load_repos_map(repos_map)
         repo_specs = [_spec_from_map_entry(e) for e in entries]
     else:
-        # default repos-map if present and no explicit repo args
         default_map = Path(_engine_root()) / "data" / "portfolio" / "repos.json"
         if (not repos) and (not repos_file) and default_map.exists():
             entries = _load_repos_map(str(default_map))
@@ -469,9 +605,6 @@ def run_portfolio_gate(
             raise SystemExit("--max-repos must be >= 1")
         repo_specs = repo_specs[: int(max_repos)]
 
-    if export_mode not in {"portfolio-only", "with-repo-gates"}:
-        raise SystemExit("--export-mode must be one of: portfolio-only, with-repo-gates")
-
     # Deterministic spec ordering
     repo_specs.sort(key=lambda r: (r.repo_id, r.repo_hash, r.repo_root))
 
@@ -481,23 +614,28 @@ def run_portfolio_gate(
         raise SystemExit("--jobs must be >= 1")
     jobs = min(jobs, 16)  # hard cap
 
-    repo_results: list[dict[str, Any]] = []
-
     def run_one(spec: RepoSpec) -> dict[str, Any]:
         return _run_operator_gate_for_repo(
             spec,
-            hide_samples=hide_samples,
-            strict=strict,
-            enforce_sla=enforce_sla,
+            default_hide_samples=hide_samples,
+            default_strict=strict,
+            default_enforce_sla=enforce_sla,
             as_of=as_of,
         )
+
+    repo_results: list[dict[str, Any]] = []
 
     if jobs == 1:
         for spec in repo_specs:
             rr = run_one(spec)
             repo_results.append(rr)
-            if fail_fast and _signals_nonzero(rr, allow_missing=bool(allow_missing)):
-                break
+            if fail_fast:
+                gate = rr.get("gate") or {}
+                is_required_error = (rr.get("repo_status") == "error") and bool((rr.get("repo") or {}).get("required", True))
+                if is_required_error and (not allow_missing):
+                    break
+                if bool(gate.get("strict_failed", False)) or bool(gate.get("regression_detected", False)):
+                    break
     else:
         futures: list[Future[dict[str, Any]]] = []
         stop_launch = False
@@ -505,8 +643,7 @@ def run_portfolio_gate(
             for spec in repo_specs:
                 if stop_launch:
                     break
-                fut = ex.submit(run_one, spec)
-                futures.append(fut)
+                futures.append(ex.submit(run_one, spec))
 
                 if fail_fast and len(futures) >= jobs:
                     # Opportunistic: if any completed already implies non-zero, stop launching more
@@ -514,7 +651,12 @@ def run_portfolio_gate(
                         if not f.done():
                             continue
                         rr = f.result()
-                        if _signals_nonzero(rr, allow_missing=bool(allow_missing)):
+                        gate = rr.get("gate") or {}
+                        is_required_error = (rr.get("repo_status") == "error") and bool((rr.get("repo") or {}).get("required", True))
+                        if is_required_error and (not allow_missing):
+                            stop_launch = True
+                            break
+                        if bool(gate.get("strict_failed", False)) or bool(gate.get("regression_detected", False)):
                             stop_launch = True
                             break
 
@@ -524,11 +666,13 @@ def run_portfolio_gate(
     repo_results = _sorted_repo_results(repo_results)
     top_actions = _merge_top_actions(repo_results)
     exit_code = _portfolio_exit_code(repo_results, allow_missing=bool(allow_missing))
+    summary = _portfolio_summary(repo_results, exit_code, allow_missing=bool(allow_missing))
 
     payload: dict[str, Any] = {
         "schema_version": PORTFOLIO_GATE_SCHEMA_VERSION,
         "command": "portfolio_gate",
         "portfolio_exit_code": int(exit_code),
+        "summary": summary,
         "policy": {
             "allow_missing": bool(allow_missing),
             "hide_samples": bool(hide_samples),
@@ -537,7 +681,7 @@ def run_portfolio_gate(
             "as_of": as_of,
             "jobs": int(jobs),
             "fail_fast": bool(fail_fast),
-            "max_repos": int(max_repos) if max_repos is not None else None,
+            "max_repos": max_repos,
             "export_mode": export_mode,
             "repos_map": repos_map,
         },

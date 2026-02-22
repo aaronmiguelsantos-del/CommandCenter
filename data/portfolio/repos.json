@@ -6,7 +6,12 @@
       "path": ".",
       "owner": "Aaron",
       "required": true,
-      "notes": "Canonical kernel repo"
+      "notes": "Canonical kernel repo",
+      "policy_overrides": {
+        "strict": true,
+        "enforce_sla": true,
+        "hide_samples": true
+      }
     }
   ]
 }

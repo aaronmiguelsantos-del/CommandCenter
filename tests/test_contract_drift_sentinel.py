@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 
 def _run(args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     """
@@ -47,9 +49,10 @@ def _assert_types(payload: dict[str, Any], type_map: dict[str, type]) -> None:
         assert isinstance(payload[k], t), f"type drift for {k}: {type(payload[k])} != {t}"
 
 
+@pytest.mark.slow
 def test_contract_drift_sentinel_export_bundle(tmp_path: Path) -> None:
     """
-    Contract Drift Sentinel (v3.1.0):
+    Contract Drift Sentinel:
     - Pins exported artifact schemas and top-level keys/types.
     - Any schema change requires:
       1) schema_version bump
@@ -62,7 +65,6 @@ def test_contract_drift_sentinel_export_bundle(tmp_path: Path) -> None:
     work_dir.mkdir(parents=True, exist_ok=True)
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    # Deterministic fixture repo + isolated working directory.
     p = _run(["failcase", "create", "--path", str(root), "--mode", "sla-breach"], cwd=work_dir)
     assert p.returncode == 0, f"failcase create failed: {p.stderr}"
 
@@ -71,7 +73,6 @@ def test_contract_drift_sentinel_export_bundle(tmp_path: Path) -> None:
 
     isolated_ledger = work_dir / "data" / "snapshots" / "report_snapshot_history.jsonl"
 
-    # Export must succeed cleanly for this fixture.
     p = _run(
         [
             "operator",
@@ -89,7 +90,6 @@ def test_contract_drift_sentinel_export_bundle(tmp_path: Path) -> None:
     )
     assert p.returncode == 0, f"operator gate clean fixture failed:\nstderr={p.stderr}\nstdout={p.stdout}"
 
-    # Required exported artifacts (contract)
     expected_artifacts = [
         "bundle_meta.json",
         "graph.json",
@@ -103,7 +103,6 @@ def test_contract_drift_sentinel_export_bundle(tmp_path: Path) -> None:
     for name in expected_artifacts:
         assert (export_dir / name).exists(), f"missing exported artifact: {name}"
 
-    # ---- bundle_meta.json contract ----
     bundle_meta = _load_json(export_dir / "bundle_meta.json")
     _assert_schema_version(bundle_meta, "1.0")
     _assert_types(
@@ -113,13 +112,10 @@ def test_contract_drift_sentinel_export_bundle(tmp_path: Path) -> None:
             "artifacts": list,
         },
     )
-    # artifacts list must be stable and complete
     assert bundle_meta["artifacts"] == expected_artifacts
 
-    # ---- operator_gate.json contract ----
     gate = _load_json(export_dir / "operator_gate.json")
     _assert_schema_version(gate, "1.0")
-    # NOTE: strict_failure must NOT be present on clean fixture
     _assert_exact_keys(
         gate,
         {
@@ -159,30 +155,25 @@ def test_contract_drift_sentinel_export_bundle(tmp_path: Path) -> None:
     assert gate["strict_failed"] is False
     assert gate["regression_detected"] is False
 
-    # ---- snapshot_diff.json contract ----
     diff = _load_json(export_dir / "snapshot_diff.json")
     _assert_schema_version(diff, "1.0")
     _assert_types(diff, {"schema_version": str, "top_actions": list})
-    # drift sentinel: top_actions must always exist (even empty)
     assert isinstance(diff["top_actions"], list)
 
-    # ---- snapshot_latest.json contract ----
     latest = _load_json(export_dir / "snapshot_latest.json")
     _assert_schema_version(latest, "1.0")
-    # don't over-pin snapshot payload structure here (it may evolve),
-    # but schema_version must bump if it does.
 
-    # ---- report_health.json + graph.json contracts (light pin) ----
     report_health = _load_json(export_dir / "report_health.json")
     _assert_schema_version(report_health, "2.0")
     graph = _load_json(export_dir / "graph.json")
     _assert_schema_version(graph, "1.0")
 
 
+@pytest.mark.slow
 def test_contract_drift_sentinel_portfolio_export(tmp_path: Path) -> None:
     """
-    Portfolio export contract drift sentinel (v3.3.x):
-    - portfolio_gate.json schema_version pinned (1.0)
+    Portfolio export contract drift sentinel (v3.5.0):
+    - portfolio_gate.json schema_version pinned (1.1)
     - bundle_meta.json artifacts list pinned for portfolio-only export
     """
     root = tmp_path / "failcase"
@@ -214,8 +205,9 @@ def test_contract_drift_sentinel_portfolio_export(tmp_path: Path) -> None:
     assert (export_dir / "bundle_meta.json").exists()
 
     pg = _load_json(export_dir / "portfolio_gate.json")
-    _assert_schema_version(pg, "1.0")
+    _assert_schema_version(pg, "1.1")
     assert pg.get("command") == "portfolio_gate"
+    assert "summary" in pg
 
     meta = _load_json(export_dir / "bundle_meta.json")
     _assert_schema_version(meta, "1.0")

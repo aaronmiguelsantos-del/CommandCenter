@@ -1,9 +1,11 @@
 name: Portfolio Gate
 
 on:
-  push:
-    branches: ["main"]
   pull_request:
+  push:
+    branches: [ "main" ]
+  schedule:
+    - cron: "0 9 * * 1"  # Mondays 09:00 UTC (nightly-ish full contract lane)
 
 jobs:
   portfolio-gate:
@@ -21,22 +23,27 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Tests
+      - name: Tests (fast lane)
         run: |
-          python -m pytest -q
+          python -m pytest -q -m "not slow"
+
+      - name: Tests (slow lane: main + schedule)
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        run: |
+          python -m pytest -q -m "slow"
 
       - name: Run portfolio gate (enforced)
         run: |
           rm -rf ci_artifacts && mkdir -p ci_artifacts/portfolio
           python -m app.main operator portfolio-gate \
             --json \
-            --repos-file data/portfolio/repos.txt \
-            --hide-samples \
+            --repos-map data/portfolio/repos.json \
             --strict \
             --enforce-sla \
+            --hide-samples \
             --jobs 4 \
             --export-path ci_artifacts/portfolio
-      # Any non-zero exit fails the job (enforces 2/3/4)
+
       - name: Upload portfolio artifacts
         if: always()
         uses: actions/upload-artifact@v4

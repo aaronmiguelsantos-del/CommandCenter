@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -13,7 +12,6 @@ def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def test_portfolio_gate_deterministic_output(tmp_path: Path) -> None:
-    # Create two deterministic registries using failcase generator.
     repo_a = tmp_path / "repo_a"
     repo_b = tmp_path / "repo_b"
 
@@ -38,6 +36,12 @@ def test_portfolio_gate_deterministic_output(tmp_path: Path) -> None:
     assert p1.returncode == 0, p1.stderr
     assert p2.returncode == 0, p2.stderr
     assert p1.stdout == p2.stdout
+
+    payload = json.loads(p1.stdout)
+    assert payload["schema_version"] == "1.1"
+    assert payload["command"] == "portfolio_gate"
+    assert "summary" in payload
+    assert isinstance(payload["summary"]["portfolio_score"], int)
 
 
 def test_portfolio_gate_parallel_determinism(tmp_path: Path) -> None:
@@ -94,6 +98,9 @@ def test_portfolio_gate_export_bundle(tmp_path: Path) -> None:
     assert meta["schema_version"] == "1.0"
     assert meta["artifacts"] == ["bundle_meta.json", "portfolio_gate.json"]
 
+    pg = json.loads((export_dir / "portfolio_gate.json").read_text(encoding="utf-8"))
+    assert pg["schema_version"] == "1.1"
+
 
 def test_portfolio_gate_export_mode_with_repo_gates(tmp_path: Path) -> None:
     repo_a = tmp_path / "repo_a"
@@ -122,12 +129,9 @@ def test_portfolio_gate_export_mode_with_repo_gates(tmp_path: Path) -> None:
         ]
     )
     assert p.returncode == 0, p.stderr
-    assert (export_dir / "portfolio_gate.json").exists()
-    assert (export_dir / "bundle_meta.json").exists()
     meta = json.loads((export_dir / "bundle_meta.json").read_text(encoding="utf-8"))
     assert meta["schema_version"] == "1.0"
     artifacts = meta["artifacts"]
-    # Must contain per-repo gate artifacts deterministically.
     assert "portfolio_gate.json" in artifacts
     assert "bundle_meta.json" in artifacts
     assert any(a.startswith("repo_") and a.endswith("_operator_gate.json") for a in artifacts)
@@ -142,7 +146,6 @@ def test_portfolio_gate_exit_code_aggregates_strict(tmp_path: Path) -> None:
     p = _run(["failcase", "create", "--path", str(repo_b), "--mode", "sla-breach"])
     assert p.returncode == 0, p.stderr
 
-    # Strict + enforce-sla should produce strict fail for repo_b -> portfolio exit 2 or 4.
     p = _run(
         [
             "operator",
@@ -161,12 +164,11 @@ def test_portfolio_gate_exit_code_aggregates_strict(tmp_path: Path) -> None:
     assert p.returncode in (2, 4), p.stderr
     payload = json.loads(p.stdout)
     assert payload["portfolio_exit_code"] in (2, 4)
-    assert payload["command"] == "portfolio_gate"
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == "1.1"
+    assert payload["summary"]["portfolio_status"] in ("yellow", "red")
 
 
 def test_portfolio_gate_missing_required_repo_forces_regression_unless_allow_missing(tmp_path: Path) -> None:
-    # One good repo + one missing repo root
     repo_a = tmp_path / "repo_a"
     p = _run(["failcase", "create", "--path", str(repo_a), "--mode", "clean"])
     assert p.returncode == 0, p.stderr
@@ -187,13 +189,11 @@ def test_portfolio_gate_missing_required_repo_forces_regression_unless_allow_mis
             "1",
         ]
     )
-    # regression because required missing by default
     assert p.returncode in (3, 4), p.stderr
     payload = json.loads(p.stdout)
     assert payload["portfolio_exit_code"] in (3, 4)
-    # find missing repo entry
     errs = [r for r in payload["repos"] if r.get("repo_status") == "error"]
-    assert errs, "expected an error repo result"
+    assert errs
 
     p = _run(
         [
@@ -209,7 +209,68 @@ def test_portfolio_gate_missing_required_repo_forces_regression_unless_allow_mis
             "1",
         ]
     )
-    # allow-missing permits clean exit for this scenario
     assert p.returncode == 0, p.stderr
     payload = json.loads(p.stdout)
     assert payload["portfolio_exit_code"] == 0
+    assert payload["summary"]["repos_error"] >= 1
+
+
+def test_portfolio_gate_repo_map_policy_overrides_disable_enforce_sla(tmp_path: Path) -> None:
+    """
+    repo_b is sla-breach. Global flags enforce strict+enforce-sla, but repo_map overrides disable enforce_sla for repo_b.
+    Expect: no strict failure from repo_b (portfolio can remain clean).
+    """
+    repo_a = tmp_path / "repo_a"
+    repo_b = tmp_path / "repo_b"
+    p = _run(["failcase", "create", "--path", str(repo_a), "--mode", "clean"])
+    assert p.returncode == 0, p.stderr
+    p = _run(["failcase", "create", "--path", str(repo_b), "--mode", "sla-breach"])
+    assert p.returncode == 0, p.stderr
+
+    repos_map = tmp_path / "repos.json"
+    repos_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "repos": [
+                    {
+                        "repo_id": "a",
+                        "path": str(repo_a),
+                        "owner": "t",
+                        "required": True,
+                        "policy_overrides": {"strict": True, "enforce_sla": True, "hide_samples": True},
+                    },
+                    {
+                        "repo_id": "b",
+                        "path": str(repo_b),
+                        "owner": "t",
+                        "required": True,
+                        # override enforce_sla OFF
+                        "policy_overrides": {"strict": True, "enforce_sla": False, "hide_samples": True},
+                    },
+                ],
+            },
+            sort_keys=True,
+        )
+    )
+
+    p = _run(
+        [
+            "operator",
+            "portfolio-gate",
+            "--json",
+            "--repos-map",
+            str(repos_map),
+            "--hide-samples",
+            "--strict",
+            "--enforce-sla",
+            "--jobs",
+            "1",
+        ]
+    )
+    assert p.returncode == 0, p.stderr
+    payload = json.loads(p.stdout)
+    assert payload["portfolio_exit_code"] == 0
+    # ensure repo b effective_policy reflects override
+    b = [r for r in payload["repos"] if r["repo"]["repo_id"] == "b"][0]
+    assert b["effective_policy"]["enforce_sla"] is False
