@@ -157,6 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
     report_portfolio_snapshot = report_sub.add_parser(
         "portfolio-snapshot",
         help="Portfolio snapshot ledger: write/tail/stats/diff/run",
+        allow_abbrev=False,
     )
     report_portfolio_snapshot.add_argument("--json", action="store_true", help="Emit JSON payload to stdout")
     report_portfolio_snapshot.add_argument(
