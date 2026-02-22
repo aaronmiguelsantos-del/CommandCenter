@@ -12,6 +12,7 @@ from core.export import export_bundle
 from core.graph import build_graph, graph_as_json, render_graph_text
 from core.health import compute_and_write_health, compute_health_for_system
 from core.portfolio_gate import run_portfolio_gate
+from core.portfolio_operator_gate import run_portfolio_operator_gate
 from core.portfolio_snapshot import (
     capture_portfolio_snapshot,
     stats_portfolio_snapshots,
@@ -247,6 +248,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     operator_cmd = subparsers.add_parser("operator", help="Operator-grade deterministic workflows.")
     operator_sub = operator_cmd.add_subparsers(dest="operator_command", required=True)
+    operator_portfolio_operator_gate = operator_sub.add_parser(
+        "portfolio-operator-gate",
+        help="Portfolio-level gate: snapshot write + diff + CI exit codes.",
+    )
+    operator_portfolio_operator_gate.add_argument("--json", action="store_true")
+    operator_portfolio_operator_gate.add_argument("--ledger", default="data/snapshots/portfolio_snapshot_history.jsonl")
+    operator_portfolio_operator_gate.add_argument("--as-of", default=None)
+    operator_portfolio_operator_gate.add_argument("--captured-at", default=None)
+    operator_portfolio_operator_gate.add_argument("--repos", nargs="+", default=None)
+    operator_portfolio_operator_gate.add_argument("--repos-file", default=None)
+    operator_portfolio_operator_gate.add_argument("--repos-map", default=None)
+    operator_portfolio_operator_gate.add_argument("--allow-missing", action="store_true")
+    operator_portfolio_operator_gate.add_argument("--hide-samples", action="store_true")
+    operator_portfolio_operator_gate.add_argument("--strict", action="store_true")
+    operator_portfolio_operator_gate.add_argument("--enforce-sla", action="store_true")
+    operator_portfolio_operator_gate.add_argument("--jobs", type=int, default=1)
+    operator_portfolio_operator_gate.add_argument("--fail-fast", action="store_true")
+    operator_portfolio_operator_gate.add_argument("--max-repos", type=int, default=None)
+    operator_portfolio_operator_gate.add_argument(
+        "--export-mode",
+        choices=["portfolio-only", "with-repo-gates"],
+        default="portfolio-only",
+    )
+    operator_portfolio_operator_gate.add_argument("--export-path", default=None)
+
     operator_portfolio_gate = operator_sub.add_parser(
         "portfolio-gate",
         help="Run operator gate across multiple repos/registries and aggregate results deterministically.",
@@ -1356,6 +1382,30 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "operator":
         bootstrap_repo()
+        if args.operator_command == "portfolio-operator-gate":
+            payload, code = run_portfolio_operator_gate(
+                ledger_path=str(args.ledger),
+                repos=args.repos,
+                repos_file=args.repos_file,
+                repos_map=args.repos_map,
+                allow_missing=bool(args.allow_missing),
+                hide_samples=bool(args.hide_samples),
+                strict=bool(args.strict),
+                enforce_sla=bool(args.enforce_sla),
+                as_of=args.as_of,
+                jobs=int(args.jobs),
+                fail_fast=bool(args.fail_fast),
+                max_repos=args.max_repos,
+                export_mode=str(args.export_mode),
+                captured_at=args.captured_at,
+                export_path=args.export_path,
+            )
+            if bool(args.json):
+                sys.stdout.write(json.dumps(payload, sort_keys=True))
+                sys.stdout.write("\n")
+            else:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            return int(code)
         if args.operator_command == "portfolio-gate":
             payload, exit_code = run_portfolio_gate(
                 repos=args.repos,

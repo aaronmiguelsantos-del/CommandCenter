@@ -99,3 +99,30 @@ python -m app.main report portfolio-snapshot diff --json --a prev --b latest
 Determinism (tests / CI):
 
 Use `--captured-at 2026-02-22T00:00:00+00:00` to pin timestamps.
+
+## operator portfolio-operator-gate (v3.7.0)
+
+Portfolio-level CI gate:
+- writes a portfolio snapshot
+- diffs prev -> latest
+- returns gate-style exit codes (0/2/3/4)
+
+```bash
+python -m app.main operator portfolio-operator-gate --json \
+  --repos-map data/portfolio/repos.json \
+  --hide-samples --strict --enforce-sla --jobs 4
+```
+
+Export artifacts:
+
+```bash
+python -m app.main operator portfolio-operator-gate --json \
+  --repos-map data/portfolio/repos.json \
+  --hide-samples --strict --enforce-sla --jobs 4 \
+  --export-path /tmp/portfolio_gate
+ls -1 /tmp/portfolio_gate | sort
+```
+
+Determinism (tests):
+
+Use `--captured-at 2026-02-22T00:00:00+00:00`.

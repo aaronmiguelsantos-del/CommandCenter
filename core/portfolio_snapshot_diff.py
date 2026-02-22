@@ -6,6 +6,24 @@ from typing import Any
 PORTFOLIO_SNAPSHOT_DIFF_SCHEMA_VERSION = "1.0"
 
 
+def _status_rank(status: str) -> int:
+    # green < yellow < red
+    return {"green": 1, "yellow": 2, "red": 3}.get(str(status), 99)
+
+
+def _exit_rank(code: int) -> int:
+    # 0 best, 3 worse, 2 worse, 4 worst
+    return {0: 1, 3: 2, 2: 3, 4: 4}.get(int(code), 99)
+
+
+def worsened_status(a: str, b: str) -> bool:
+    return _status_rank(b) > _status_rank(a)
+
+
+def worsened_exit_code(a: int, b: int) -> bool:
+    return _exit_rank(b) > _exit_rank(a)
+
+
 def _repo_key(r: dict[str, Any]) -> tuple[str, str]:
     repo = r.get("repo") or {}
     if not isinstance(repo, dict):
