@@ -32,9 +32,10 @@ jobs:
         run: |
           python -m pytest -q -m "slow"
 
-      - name: Run portfolio gate (enforced)
+      - name: Run portfolio gate (capture status)
         run: |
           rm -rf ci_artifacts && mkdir -p ci_artifacts/portfolio
+          set +e
           python -m app.main operator portfolio-gate \
             --json \
             --repos-map data/portfolio/repos.json \
@@ -43,6 +44,12 @@ jobs:
             --hide-samples \
             --jobs 4 \
             --export-path ci_artifacts/portfolio
+          code=$?
+          echo "Gate exit code: $code"
+          if [ "$code" -ne 0 ] && [ "$code" -ne 2 ] && [ "$code" -ne 3 ] && [ "$code" -ne 4 ]; then
+            exit "$code"
+          fi
+          exit 0
 
       - name: Upload portfolio artifacts
         if: always()

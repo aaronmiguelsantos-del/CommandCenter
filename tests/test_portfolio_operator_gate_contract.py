@@ -21,12 +21,15 @@ def test_portfolio_operator_gate_export_contract(tmp_path: Path) -> None:
     p = _run(["failcase", "create", "--path", str(repo_a), "--mode", "clean"])
     assert p.returncode == 0, p.stderr
 
+    ledger = tmp_path / "portfolio_snapshot_history.jsonl"
     export_dir = tmp_path / "export"
     p = _run(
         [
             "operator",
             "portfolio-operator-gate",
             "--json",
+            "--ledger",
+            str(ledger),
             "--repos",
             str(repo_a),
             "--hide-samples",

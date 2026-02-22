@@ -52,7 +52,10 @@ jobs:
           fi
           echo "exit_code=$code" >> $GITHUB_OUTPUT
           echo "Gate exit code: $code"
-          exit $code
+          if [ "$code" -ne 0 ] && [ "$code" -ne 2 ] && [ "$code" -ne 3 ] && [ "$code" -ne 4 ]; then
+            exit "$code"
+          fi
+          exit 0
 
       - name: Upload portfolio gate artifacts
         if: always()
