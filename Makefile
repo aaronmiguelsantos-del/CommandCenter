@@ -3,7 +3,7 @@
 PY := .venv/bin/python
 PIP := .venv/bin/pip
 
-.PHONY: help venv deps test health health-json health-global log system-list workflow-contract-guard install-hooks portfolio-run-health portfolio-run-release portfolio-run-registry
+.PHONY: help venv deps test health health-json health-global log system-list workflow-contract-guard install-hooks portfolio-run-health portfolio-run-release portfolio-run-registry portfolio-health-report portfolio-release-report executive-status executive-report
 
 help:
 	@echo ""
@@ -17,6 +17,10 @@ help:
 	@echo "  make portfolio-run-health  Run policy-driven portfolio health task(s)"
 	@echo "  make portfolio-run-release Run policy-driven portfolio release task(s)"
 	@echo "  make portfolio-run-registry Run policy-driven portfolio registry task(s)"
+	@echo "  make portfolio-health-report Write/print trendable portfolio health report"
+	@echo "  make portfolio-release-report Write/print trendable portfolio release report"
+	@echo "  make executive-status Run deterministic executive status"
+	@echo "  make executive-report Write deterministic executive report artifacts"
 	@echo "  make system-list   Alias for per-system health"
 	@echo "  make workflow-contract-guard Validate workflow lint contracts"
 	@echo "  make install-hooks Configure local git hooks path (.githooks)"
@@ -54,6 +58,18 @@ portfolio-run-release:
 
 portfolio-run-registry:
 	$(PY) -m app.main operator portfolio-run --task registry --json | $(PY) -m json.tool | head -n 120
+
+portfolio-health-report:
+	$(PY) -m app.main report portfolio-health --json --output-json reports/portfolio_health.json --output-md reports/portfolio_health.md | $(PY) -m json.tool | head -n 120
+
+portfolio-release-report:
+	$(PY) -m app.main report portfolio-release --json --output-json reports/portfolio_release.json --output-md reports/portfolio_release.md | $(PY) -m json.tool | head -n 120
+
+executive-status:
+	$(PY) -m app.main operator executive status --json | $(PY) -m json.tool | head -n 120
+
+executive-report:
+	$(PY) -m app.main operator executive report --json --output-json reports/executive_report.json --output-md reports/executive_report.md | $(PY) -m json.tool | head -n 120
 
 workflow-contract-guard:
 	python3 scripts/workflow_contract_guard.py

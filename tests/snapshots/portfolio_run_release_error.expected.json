@@ -1,0 +1,56 @@
+{
+  "command": "portfolio_run",
+  "history": {
+    "captured_at": "2026-02-22T00:00:00Z",
+    "delta_summary": {
+      "repos_error_delta": null,
+      "repos_ok_delta": null,
+      "repos_selected_delta": null,
+      "repos_skipped_delta": null
+    },
+    "path": "__HISTORY_PATH__",
+    "previous_captured_at": null,
+    "written": true
+  },
+  "repos": [
+    {
+      "command": "sh -lc 'exit 2'",
+      "error_code": "TASK_FAILED",
+      "rc": 2,
+      "reason": "task_command_failed",
+      "repo": {
+        "excluded_tasks": [],
+        "execution_policy": {
+          "health_command": "",
+          "preferred_python": "",
+          "registry_command": "",
+          "release_command": "sh -lc 'exit 2'"
+        },
+        "group_key": "repo_a",
+        "group_role": "primary",
+        "lifecycle": "active",
+        "notes": "",
+        "owner": "",
+        "policy_overrides": {},
+        "repo_id": "repo_a",
+        "repo_root": "__REPO_ROOT__",
+        "required": true,
+        "task_timeouts_seconds": {}
+      },
+      "status": "error",
+      "stderr": "",
+      "stdout": "",
+      "task": "release",
+      "timeout_seconds": null
+    }
+  ],
+  "schema_version": "1.0",
+  "status": "needs_attention",
+  "summary": {
+    "repos_error": 1,
+    "repos_ok": 0,
+    "repos_selected": 1,
+    "repos_skipped": 0
+  },
+  "task": "release"
+}

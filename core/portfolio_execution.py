@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from core.portfolio_history import append_jsonl, build_history_entry, latest_and_previous, now_utc_iso, read_jsonl, summary_delta
 from core.portfolio_policy import PortfolioRepo, resolve_portfolio_repos
 
 
@@ -20,6 +21,10 @@ ERR_TASK_EXCLUDED = "TASK_EXCLUDED"
 ERR_TASK_TIMEOUT = "TASK_TIMEOUT"
 ERR_TASK_FAILED = "TASK_FAILED"
 _ALLOWED_TASKS = {"health", "release", "registry"}
+_DEFAULT_HISTORY_PATHS = {
+    "health": "data/portfolio/health_history.jsonl",
+    "release": "data/portfolio/release_history.jsonl",
+}
 
 
 @dataclass(frozen=True)
@@ -172,6 +177,42 @@ def _summary(results: list[TaskResult]) -> dict[str, int]:
     }
 
 
+def _history_meta(
+    *,
+    task: str,
+    payload: dict[str, Any],
+    write_history: bool,
+    history_path: str | None,
+    captured_at: str | None,
+) -> dict[str, Any]:
+    resolved_path = history_path or _DEFAULT_HISTORY_PATHS.get(task)
+    if not write_history or not resolved_path:
+        return {
+            "written": False,
+            "path": None,
+            "captured_at": captured_at,
+            "previous_captured_at": None,
+            "delta_summary": summary_delta(latest_payload=payload, previous_payload=None),
+        }
+
+    existing_rows = read_jsonl(resolved_path)
+    _latest, previous = latest_and_previous(existing_rows)
+    previous_payload = previous.get("payload") if isinstance(previous, dict) else None
+    previous_captured_at = previous.get("captured_at") if isinstance(previous, dict) else None
+    ts = captured_at or now_utc_iso()
+    append_jsonl(
+        resolved_path,
+        build_history_entry(task=task, captured_at=ts, payload=payload),
+    )
+    return {
+        "written": True,
+        "path": str(Path(resolved_path).expanduser().resolve()),
+        "captured_at": ts,
+        "previous_captured_at": previous_captured_at,
+        "delta_summary": summary_delta(latest_payload=payload, previous_payload=previous_payload if isinstance(previous_payload, dict) else None),
+    }
+
+
 def run_portfolio_task(
     *,
     task: str,
@@ -181,6 +222,9 @@ def run_portfolio_task(
     allow_missing: bool = False,
     max_repos: int | None = None,
     jobs: int = 1,
+    write_history: bool | None = None,
+    history_path: str | None = None,
+    captured_at: str | None = None,
 ) -> tuple[dict[str, Any], int]:
     if task not in _ALLOWED_TASKS:
         payload = {
@@ -233,6 +277,14 @@ def run_portfolio_task(
         "repos": [item.to_dict() for item in results],
         "summary": summary,
     }
+    should_write = bool(write_history) if write_history is not None else task in _DEFAULT_HISTORY_PATHS
+    payload["history"] = _history_meta(
+        task=task,
+        payload=payload,
+        write_history=should_write,
+        history_path=history_path,
+        captured_at=captured_at,
+    )
     return payload, 0 if status == "ok" else 2
 
 

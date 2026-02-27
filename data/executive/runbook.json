@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "name": "bootstrapping_engine_executive",
+  "steps": [
+    {
+      "step_id": "portfolio_health",
+      "title": "Portfolio health",
+      "task": "health",
+      "severity_on_error": "high"
+    },
+    {
+      "step_id": "portfolio_release",
+      "title": "Portfolio release",
+      "task": "release",
+      "severity_on_error": "high"
+    },
+    {
+      "step_id": "portfolio_registry",
+      "title": "Portfolio registry",
+      "task": "registry",
+      "severity_on_error": "medium"
+    }
+  ]
+}

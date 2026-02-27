@@ -78,6 +78,34 @@ Notes:
 - `--repos` / `--repos-file` create ad hoc repo entries with no policy; tasks without explicit commands are returned as `skipped`.
 - Missing repo paths are typed errors unless `--allow-missing` is set.
 - `preferred_python` supports `{python}` placeholder replacement inside task commands.
+- `health` and `release` append JSONL history by default unless `--no-write-history` is set.
+
+## report portfolio-health (v4.2.0)
+
+Runs `operator portfolio-run --task health`, appends to `data/portfolio/health_history.jsonl`, and emits a trend-aware report.
+
+```bash
+python -m app.main report portfolio-health --json
+python -m app.main report portfolio-health --json --output-json reports/portfolio_health.json --output-md reports/portfolio_health.md
+```
+
+## report portfolio-release (v4.2.0)
+
+Runs `operator portfolio-run --task release`, appends to `data/portfolio/release_history.jsonl`, and emits a trend-aware report.
+
+```bash
+python -m app.main report portfolio-release --json
+python -m app.main report portfolio-release --json --output-json reports/portfolio_release.json --output-md reports/portfolio_release.md
+```
+
+## operator executive status|report (v4.5.0)
+
+Runs a deterministic executive runbook from `data/executive/runbook.json`.
+
+```bash
+python -m app.main operator executive status --json
+python -m app.main operator executive report --json --output-json reports/executive_report.json --output-md reports/executive_report.md
+```
 
 ## report portfolio-snapshot (v3.6.0)
 

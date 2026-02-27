@@ -26,6 +26,8 @@ python -m app.main report health
 python -m app.main validate
 python -m app.main health --all --strict
 python -m app.main operator portfolio-run --task health --json
+python -m app.main report portfolio-health --json
+python -m app.main operator executive status --json
 ```
 
 ## UI Quickstart
@@ -53,3 +55,4 @@ pytest -q
 - `docs/V1_ACCEPTANCE.md`
 - `docs/CLI.md`
 - `docs/PORTFOLIO_POLICY_CONTRACT.md`
+- `docs/EXECUTIVE_REPORT_CONTRACT.md`

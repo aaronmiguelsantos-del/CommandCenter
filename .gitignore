@@ -13,6 +13,14 @@ venv/
 
 # Runtime ledgers / local state (do not track)
 data/snapshots/report_snapshot_history.jsonl
+data/portfolio/health_history.jsonl
+data/portfolio/release_history.jsonl
+reports/portfolio_health.json
+reports/portfolio_health.md
+reports/portfolio_release.json
+reports/portfolio_release.md
+reports/executive_report.json
+reports/executive_report.md
 
 # Streamlit cache
 .streamlit/

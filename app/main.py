@@ -13,8 +13,10 @@ from core.graph import build_graph, graph_as_json, render_graph_text
 from core.health import compute_and_write_health, compute_health_for_system
 from core.portfolio_execution import run_portfolio_task
 from core.portfolio_gate import run_portfolio_gate
+from core.portfolio_health import DEFAULT_PORTFOLIO_HEALTH_HISTORY, run_portfolio_health_report, write_portfolio_health_outputs
 from core.portfolio_operator_gate import run_portfolio_operator_gate
 from core.portfolio_operator_gate_pretty import render_portfolio_operator_gate_pretty
+from core.portfolio_release import DEFAULT_PORTFOLIO_RELEASE_HISTORY, run_portfolio_release_report, write_portfolio_release_outputs
 from core.portfolio_snapshot import (
     capture_portfolio_snapshot,
     stats_portfolio_snapshots,
@@ -30,6 +32,7 @@ from core.strict import build_policy, collect_strict_failures, strict_failure_pa
 from core.storage import append_event, create_contract
 from core.timeutil import parse_iso_utc
 from core.validate import validate_repo
+from core.executive_report import DEFAULT_EXECUTIVE_RUNBOOK, run_executive_report, write_executive_outputs
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -231,6 +234,40 @@ def build_parser() -> argparse.ArgumentParser:
     report_portfolio_snapshot_diff.add_argument("--a", default="prev")
     report_portfolio_snapshot_diff.add_argument("--b", default="latest")
 
+    report_portfolio_health = report_sub.add_parser(
+        "portfolio-health",
+        help="Run portfolio health tasks, append history, and emit a trendable report.",
+    )
+    report_portfolio_health.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    report_portfolio_health.add_argument("--repos", nargs="+", default=None)
+    report_portfolio_health.add_argument("--repos-file", default=None)
+    report_portfolio_health.add_argument("--repos-map", default=None)
+    report_portfolio_health.add_argument("--allow-missing", action="store_true")
+    report_portfolio_health.add_argument("--max-repos", type=int, default=None)
+    report_portfolio_health.add_argument("--jobs", type=int, default=1)
+    report_portfolio_health.add_argument("--history-path", default=DEFAULT_PORTFOLIO_HEALTH_HISTORY)
+    report_portfolio_health.add_argument("--captured-at", default=None)
+    report_portfolio_health.add_argument("--no-write-history", action="store_true")
+    report_portfolio_health.add_argument("--output-json", default=None)
+    report_portfolio_health.add_argument("--output-md", default=None)
+
+    report_portfolio_release = report_sub.add_parser(
+        "portfolio-release",
+        help="Run portfolio release tasks, append history, and emit a trendable report.",
+    )
+    report_portfolio_release.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    report_portfolio_release.add_argument("--repos", nargs="+", default=None)
+    report_portfolio_release.add_argument("--repos-file", default=None)
+    report_portfolio_release.add_argument("--repos-map", default=None)
+    report_portfolio_release.add_argument("--allow-missing", action="store_true")
+    report_portfolio_release.add_argument("--max-repos", type=int, default=None)
+    report_portfolio_release.add_argument("--jobs", type=int, default=1)
+    report_portfolio_release.add_argument("--history-path", default=DEFAULT_PORTFOLIO_RELEASE_HISTORY)
+    report_portfolio_release.add_argument("--captured-at", default=None)
+    report_portfolio_release.add_argument("--no-write-history", action="store_true")
+    report_portfolio_release.add_argument("--output-json", default=None)
+    report_portfolio_release.add_argument("--output-md", default=None)
+
 
     report_graph = report_sub.add_parser("graph", help="Print dependency graph (text or JSON).")
     report_graph.add_argument("--json", action="store_true", help="Emit JSON.")
@@ -384,6 +421,53 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         help="Max concurrent repo task executions. Output remains deterministically sorted.",
     )
+    operator_portfolio_run.add_argument(
+        "--history-path",
+        default=None,
+        help="Optional JSONL path override for health/release task history.",
+    )
+    operator_portfolio_run.add_argument(
+        "--captured-at",
+        default=None,
+        help="Override captured_at written to task history for deterministic tests.",
+    )
+    operator_portfolio_run.add_argument(
+        "--no-write-history",
+        action="store_true",
+        help="Disable default history append for health/release tasks.",
+    )
+
+    operator_executive = operator_sub.add_parser(
+        "executive",
+        help="Deterministic executive runbook/report over portfolio tasks.",
+    )
+    executive_sub = operator_executive.add_subparsers(dest="executive_command", required=True)
+
+    executive_status = executive_sub.add_parser("status", help="Run executive runbook and emit status.")
+    executive_status.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    executive_status.add_argument("--runbook", default=DEFAULT_EXECUTIVE_RUNBOOK)
+    executive_status.add_argument("--repos", nargs="+", default=None)
+    executive_status.add_argument("--repos-file", default=None)
+    executive_status.add_argument("--repos-map", default=None)
+    executive_status.add_argument("--allow-missing", action="store_true")
+    executive_status.add_argument("--max-repos", type=int, default=None)
+    executive_status.add_argument("--jobs", type=int, default=1)
+    executive_status.add_argument("--captured-at", default=None)
+    executive_status.add_argument("--no-write-history", action="store_true")
+
+    executive_report = executive_sub.add_parser("report", help="Run executive runbook and emit report artifacts.")
+    executive_report.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    executive_report.add_argument("--runbook", default=DEFAULT_EXECUTIVE_RUNBOOK)
+    executive_report.add_argument("--repos", nargs="+", default=None)
+    executive_report.add_argument("--repos-file", default=None)
+    executive_report.add_argument("--repos-map", default=None)
+    executive_report.add_argument("--allow-missing", action="store_true")
+    executive_report.add_argument("--max-repos", type=int, default=None)
+    executive_report.add_argument("--jobs", type=int, default=1)
+    executive_report.add_argument("--captured-at", default=None)
+    executive_report.add_argument("--no-write-history", action="store_true")
+    executive_report.add_argument("--output-json", default="reports/executive_report.json")
+    executive_report.add_argument("--output-md", default="reports/executive_report.md")
 
     operator_gate = operator_sub.add_parser("gate", help="Run strict gate + snapshot write + diff regression check.")
     operator_gate.add_argument("--registry", default=None, help="Optional path to systems registry JSON.")
@@ -1417,6 +1501,44 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 0
 
             raise SystemExit("portfolio-snapshot requires --write or a subcommand (tail|stats|diff)")
+        if args.report_command == "portfolio-health":
+            report, exit_code = run_portfolio_health_report(
+                repos=args.repos,
+                repos_file=args.repos_file,
+                repos_map=args.repos_map,
+                allow_missing=bool(args.allow_missing),
+                max_repos=args.max_repos,
+                jobs=int(args.jobs),
+                history_path=str(args.history_path),
+                captured_at=args.captured_at,
+                write_history=not bool(args.no_write_history),
+            )
+            write_portfolio_health_outputs(report, json_path=args.output_json, md_path=args.output_md)
+            if bool(args.json):
+                sys.stdout.write(json.dumps(report, sort_keys=True))
+                sys.stdout.write("\n")
+            else:
+                print(json.dumps(report, indent=2, sort_keys=True))
+            return int(exit_code)
+        if args.report_command == "portfolio-release":
+            report, exit_code = run_portfolio_release_report(
+                repos=args.repos,
+                repos_file=args.repos_file,
+                repos_map=args.repos_map,
+                allow_missing=bool(args.allow_missing),
+                max_repos=args.max_repos,
+                jobs=int(args.jobs),
+                history_path=str(args.history_path),
+                captured_at=args.captured_at,
+                write_history=not bool(args.no_write_history),
+            )
+            write_portfolio_release_outputs(report, json_path=args.output_json, md_path=args.output_md)
+            if bool(args.json):
+                sys.stdout.write(json.dumps(report, sort_keys=True))
+                sys.stdout.write("\n")
+            else:
+                print(json.dumps(report, indent=2, sort_keys=True))
+            return int(exit_code)
         if args.report_command == "export":
             return _emit_report_export(
                 out_dir=args.out,
@@ -1492,12 +1614,35 @@ def main(argv: Sequence[str] | None = None) -> int:
                 allow_missing=bool(args.allow_missing),
                 max_repos=args.max_repos,
                 jobs=int(args.jobs),
+                write_history=not bool(args.no_write_history),
+                history_path=args.history_path,
+                captured_at=args.captured_at,
             )
             if bool(args.json):
                 sys.stdout.write(json.dumps(payload, sort_keys=True))
                 sys.stdout.write("\n")
             else:
                 print(json.dumps(payload, indent=2, sort_keys=True))
+            return int(exit_code)
+        if args.operator_command == "executive":
+            report, exit_code = run_executive_report(
+                runbook_path=str(args.runbook),
+                repos=args.repos,
+                repos_file=args.repos_file,
+                repos_map=args.repos_map,
+                allow_missing=bool(args.allow_missing),
+                max_repos=args.max_repos,
+                jobs=int(args.jobs),
+                captured_at=args.captured_at,
+                write_history=not bool(args.no_write_history),
+            )
+            if args.executive_command == "report":
+                write_executive_outputs(report, json_path=args.output_json, md_path=args.output_md)
+            if bool(args.json):
+                sys.stdout.write(json.dumps(report, sort_keys=True))
+                sys.stdout.write("\n")
+            else:
+                print(json.dumps(report, indent=2, sort_keys=True))
             return int(exit_code)
         if args.operator_command == "gate":
             try:
