@@ -87,6 +87,9 @@ Runs `operator portfolio-run --task health`, appends to `data/portfolio/health_h
 ```bash
 python -m app.main report portfolio-health --json
 python -m app.main report portfolio-health --json --output-json reports/portfolio_health.json --output-md reports/portfolio_health.md
+python -m app.main report portfolio-health tail --json
+python -m app.main report portfolio-health stats --json --days 7
+python -m app.main report portfolio-health diff --json --a prev --b latest
 ```
 
 ## report portfolio-release (v4.2.0)
@@ -96,6 +99,9 @@ Runs `operator portfolio-run --task release`, appends to `data/portfolio/release
 ```bash
 python -m app.main report portfolio-release --json
 python -m app.main report portfolio-release --json --output-json reports/portfolio_release.json --output-md reports/portfolio_release.md
+python -m app.main report portfolio-release tail --json
+python -m app.main report portfolio-release stats --json --days 7
+python -m app.main report portfolio-release diff --json --a prev --b latest
 ```
 
 ## operator executive status|report (v4.5.0)
@@ -106,6 +112,20 @@ Runs a deterministic executive runbook from `data/executive/runbook.json`.
 python -m app.main operator executive status --json
 python -m app.main operator executive report --json --output-json reports/executive_report.json --output-md reports/executive_report.md
 ```
+
+Runbook steps can override:
+- `repos`
+- `repos_file`
+- `repos_map`
+- `allow_missing`
+- `max_repos`
+- `jobs`
+- `history_path`
+- `write_history`
+- `output_json`
+- `output_md`
+
+Relative override paths resolve relative to the runbook file.
 
 ## report portfolio-snapshot (v3.6.0)
 

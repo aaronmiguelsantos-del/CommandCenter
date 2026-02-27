@@ -5,7 +5,14 @@ from pathlib import Path
 from typing import Any
 
 from core.portfolio_execution import run_portfolio_task
-from core.portfolio_history import latest_and_previous, read_jsonl, repo_transitions
+from core.portfolio_history import (
+    history_diff,
+    history_stats,
+    history_tail,
+    latest_and_previous,
+    read_jsonl,
+    repo_transitions,
+)
 
 
 PORTFOLIO_RELEASE_REPORT_SCHEMA_VERSION = "1.0"
@@ -152,6 +159,76 @@ def run_portfolio_release_report(
         latest_payload=payload,
     )
     return report, code
+
+
+def tail_portfolio_release_history(
+    *,
+    history_path: str = DEFAULT_PORTFOLIO_RELEASE_HISTORY,
+    n: int = 5,
+    as_of: str | None = None,
+) -> dict[str, Any]:
+    payload = history_tail(ledger_path=history_path, n=n, as_of=as_of)
+    return {
+        "schema_version": PORTFOLIO_RELEASE_REPORT_SCHEMA_VERSION,
+        "command": "portfolio_release_tail",
+        "task": "release",
+        "history": {
+            "path": payload["ledger"],
+            "as_of": payload["as_of"],
+            "n": payload["n"],
+            "rows": payload["rows"],
+        },
+    }
+
+
+def stats_portfolio_release_history(
+    *,
+    history_path: str = DEFAULT_PORTFOLIO_RELEASE_HISTORY,
+    days: int = 7,
+    as_of: str | None = None,
+) -> dict[str, Any]:
+    payload = history_stats(ledger_path=history_path, days=days, as_of=as_of)
+    return {
+        "schema_version": PORTFOLIO_RELEASE_REPORT_SCHEMA_VERSION,
+        "command": "portfolio_release_stats",
+        "task": "release",
+        "history": {
+            "path": payload["ledger"],
+            "as_of": payload["as_of"],
+            "days": payload["days"],
+            "entry_count": payload["entry_count"],
+        },
+        "status_counts": payload["status_counts"],
+        "averages": {
+            "repos_ok": payload["avg_repos_ok"],
+            "repos_error": payload["avg_repos_error"],
+            "repos_skipped": payload["avg_repos_skipped"],
+        },
+    }
+
+
+def diff_portfolio_release_history(
+    *,
+    history_path: str = DEFAULT_PORTFOLIO_RELEASE_HISTORY,
+    a: str = "prev",
+    b: str = "latest",
+    as_of: str | None = None,
+) -> dict[str, Any]:
+    payload = history_diff(ledger_path=history_path, a=a, b=b, as_of=as_of)
+    return {
+        "schema_version": PORTFOLIO_RELEASE_REPORT_SCHEMA_VERSION,
+        "command": "portfolio_release_diff",
+        "task": "release",
+        "history": {
+            "path": payload["ledger"],
+            "as_of": as_of,
+        },
+        "a": payload["a"],
+        "b": payload["b"],
+        "status_change": payload["status_change"],
+        "summary_delta": payload["summary_delta"],
+        "repo_transitions": payload["repo_transitions"],
+    }
 
 
 def write_portfolio_release_outputs(report: dict[str, Any], *, json_path: str | None, md_path: str | None) -> None:

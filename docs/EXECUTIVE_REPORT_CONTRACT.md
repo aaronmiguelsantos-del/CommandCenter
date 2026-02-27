@@ -23,6 +23,19 @@ Step fields:
 - `title` (string)
 - `task` in `health|release|registry`
 - `severity_on_error` in `high|medium|low`
+- optional step-local overrides:
+  - `repos` (array of repo roots)
+  - `repos_file` (string path)
+  - `repos_map` (string path)
+  - `allow_missing` (bool)
+  - `max_repos` (positive int)
+  - `jobs` (positive int)
+  - `history_path` (string path)
+  - `write_history` (bool)
+  - `output_json` (string path)
+  - `output_md` (string path)
+
+Relative override paths resolve relative to the runbook file path.
 
 ## Report JSON
 
@@ -44,5 +57,7 @@ Summary fields:
 ## Determinism
 
 - Step ordering follows runbook order exactly.
-- `top_actions` are sorted by `(severity, step_id, repo_id)` then assigned increasing `priority`.
+- `top_actions` are sorted by severity rank (`high`, `medium`, `low`) then `(step_id, repo_id)` and assigned increasing `priority`.
 - Executive reporting reuses `portfolio-run` payloads; it does not invent a parallel execution model.
+- `operator executive status` never writes per-step output artifacts.
+- `operator executive report` may write per-step output artifacts when the runbook declares `output_json` / `output_md`.

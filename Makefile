@@ -3,7 +3,7 @@
 PY := .venv/bin/python
 PIP := .venv/bin/pip
 
-.PHONY: help venv deps test health health-json health-global log system-list workflow-contract-guard install-hooks portfolio-run-health portfolio-run-release portfolio-run-registry portfolio-health-report portfolio-release-report executive-status executive-report
+.PHONY: help venv deps test health health-json health-global log system-list workflow-contract-guard install-hooks portfolio-run-health portfolio-run-release portfolio-run-registry portfolio-health-report portfolio-release-report portfolio-health-tail portfolio-health-stats portfolio-health-diff portfolio-release-tail portfolio-release-stats portfolio-release-diff executive-status executive-report
 
 help:
 	@echo ""
@@ -19,6 +19,12 @@ help:
 	@echo "  make portfolio-run-registry Run policy-driven portfolio registry task(s)"
 	@echo "  make portfolio-health-report Write/print trendable portfolio health report"
 	@echo "  make portfolio-release-report Write/print trendable portfolio release report"
+	@echo "  make portfolio-health-tail Tail portfolio health history"
+	@echo "  make portfolio-health-stats Compute portfolio health history stats"
+	@echo "  make portfolio-health-diff Diff previous vs latest portfolio health history"
+	@echo "  make portfolio-release-tail Tail portfolio release history"
+	@echo "  make portfolio-release-stats Compute portfolio release history stats"
+	@echo "  make portfolio-release-diff Diff previous vs latest portfolio release history"
 	@echo "  make executive-status Run deterministic executive status"
 	@echo "  make executive-report Write deterministic executive report artifacts"
 	@echo "  make system-list   Alias for per-system health"
@@ -64,6 +70,24 @@ portfolio-health-report:
 
 portfolio-release-report:
 	$(PY) -m app.main report portfolio-release --json --output-json reports/portfolio_release.json --output-md reports/portfolio_release.md | $(PY) -m json.tool | head -n 120
+
+portfolio-health-tail:
+	$(PY) -m app.main report portfolio-health tail --json | $(PY) -m json.tool | head -n 120
+
+portfolio-health-stats:
+	$(PY) -m app.main report portfolio-health stats --json | $(PY) -m json.tool | head -n 120
+
+portfolio-health-diff:
+	$(PY) -m app.main report portfolio-health diff --json | $(PY) -m json.tool | head -n 120
+
+portfolio-release-tail:
+	$(PY) -m app.main report portfolio-release tail --json | $(PY) -m json.tool | head -n 120
+
+portfolio-release-stats:
+	$(PY) -m app.main report portfolio-release stats --json | $(PY) -m json.tool | head -n 120
+
+portfolio-release-diff:
+	$(PY) -m app.main report portfolio-release diff --json | $(PY) -m json.tool | head -n 120
 
 executive-status:
 	$(PY) -m app.main operator executive status --json | $(PY) -m json.tool | head -n 120

@@ -12,3 +12,7 @@ def test_portfolio_policy_contract_doc_mentions_required_fields() -> None:
     assert "release_command" in doc
     assert "registry_command" in doc
     assert "preferred_python" in doc
+    assert "excluded_tasks" in doc
+    assert "task_timeouts_seconds" in doc
+    assert "lifecycle" in doc
+    assert "group_role" in doc

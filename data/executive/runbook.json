@@ -6,19 +6,28 @@
       "step_id": "portfolio_health",
       "title": "Portfolio health",
       "task": "health",
-      "severity_on_error": "high"
+      "severity_on_error": "high",
+      "repos_map": "../portfolio/repos.json",
+      "history_path": "history/portfolio_health.jsonl",
+      "output_json": "../../reports/executive_steps/portfolio_health.json",
+      "output_md": "../../reports/executive_steps/portfolio_health.md"
     },
     {
       "step_id": "portfolio_release",
       "title": "Portfolio release",
       "task": "release",
-      "severity_on_error": "high"
+      "severity_on_error": "high",
+      "repos_map": "../portfolio/repos.json",
+      "history_path": "history/portfolio_release.jsonl",
+      "output_json": "../../reports/executive_steps/portfolio_release.json",
+      "output_md": "../../reports/executive_steps/portfolio_release.md"
     },
     {
       "step_id": "portfolio_registry",
       "title": "Portfolio registry",
       "task": "registry",
-      "severity_on_error": "medium"
+      "severity_on_error": "medium",
+      "repos_map": "../portfolio/repos.json"
     }
   ]
 }

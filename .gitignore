@@ -15,12 +15,14 @@ venv/
 data/snapshots/report_snapshot_history.jsonl
 data/portfolio/health_history.jsonl
 data/portfolio/release_history.jsonl
+data/executive/history/
 reports/portfolio_health.json
 reports/portfolio_health.md
 reports/portfolio_release.json
 reports/portfolio_release.md
 reports/executive_report.json
 reports/executive_report.md
+reports/executive_steps/
 
 # Streamlit cache
 .streamlit/

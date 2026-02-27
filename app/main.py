@@ -13,10 +13,24 @@ from core.graph import build_graph, graph_as_json, render_graph_text
 from core.health import compute_and_write_health, compute_health_for_system
 from core.portfolio_execution import run_portfolio_task
 from core.portfolio_gate import run_portfolio_gate
-from core.portfolio_health import DEFAULT_PORTFOLIO_HEALTH_HISTORY, run_portfolio_health_report, write_portfolio_health_outputs
+from core.portfolio_health import (
+    DEFAULT_PORTFOLIO_HEALTH_HISTORY,
+    diff_portfolio_health_history,
+    run_portfolio_health_report,
+    stats_portfolio_health_history,
+    tail_portfolio_health_history,
+    write_portfolio_health_outputs,
+)
 from core.portfolio_operator_gate import run_portfolio_operator_gate
 from core.portfolio_operator_gate_pretty import render_portfolio_operator_gate_pretty
-from core.portfolio_release import DEFAULT_PORTFOLIO_RELEASE_HISTORY, run_portfolio_release_report, write_portfolio_release_outputs
+from core.portfolio_release import (
+    DEFAULT_PORTFOLIO_RELEASE_HISTORY,
+    diff_portfolio_release_history,
+    run_portfolio_release_report,
+    stats_portfolio_release_history,
+    tail_portfolio_release_history,
+    write_portfolio_release_outputs,
+)
 from core.portfolio_snapshot import (
     capture_portfolio_snapshot,
     stats_portfolio_snapshots,
@@ -250,6 +264,35 @@ def build_parser() -> argparse.ArgumentParser:
     report_portfolio_health.add_argument("--no-write-history", action="store_true")
     report_portfolio_health.add_argument("--output-json", default=None)
     report_portfolio_health.add_argument("--output-md", default=None)
+    report_portfolio_health_sub = report_portfolio_health.add_subparsers(dest="portfolio_health_command")
+
+    report_portfolio_health_tail = report_portfolio_health_sub.add_parser(
+        "tail",
+        help="Tail portfolio health history ledger.",
+    )
+    report_portfolio_health_tail.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    report_portfolio_health_tail.add_argument("--history-path", default=DEFAULT_PORTFOLIO_HEALTH_HISTORY)
+    report_portfolio_health_tail.add_argument("--n", type=int, default=5)
+    report_portfolio_health_tail.add_argument("--as-of", default=None)
+
+    report_portfolio_health_stats = report_portfolio_health_sub.add_parser(
+        "stats",
+        help="Stats for portfolio health history ledger.",
+    )
+    report_portfolio_health_stats.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    report_portfolio_health_stats.add_argument("--history-path", default=DEFAULT_PORTFOLIO_HEALTH_HISTORY)
+    report_portfolio_health_stats.add_argument("--days", type=int, default=7)
+    report_portfolio_health_stats.add_argument("--as-of", default=None)
+
+    report_portfolio_health_diff = report_portfolio_health_sub.add_parser(
+        "diff",
+        help="Diff two portfolio health history entries.",
+    )
+    report_portfolio_health_diff.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    report_portfolio_health_diff.add_argument("--history-path", default=DEFAULT_PORTFOLIO_HEALTH_HISTORY)
+    report_portfolio_health_diff.add_argument("--a", default="prev")
+    report_portfolio_health_diff.add_argument("--b", default="latest")
+    report_portfolio_health_diff.add_argument("--as-of", default=None)
 
     report_portfolio_release = report_sub.add_parser(
         "portfolio-release",
@@ -267,6 +310,35 @@ def build_parser() -> argparse.ArgumentParser:
     report_portfolio_release.add_argument("--no-write-history", action="store_true")
     report_portfolio_release.add_argument("--output-json", default=None)
     report_portfolio_release.add_argument("--output-md", default=None)
+    report_portfolio_release_sub = report_portfolio_release.add_subparsers(dest="portfolio_release_command")
+
+    report_portfolio_release_tail = report_portfolio_release_sub.add_parser(
+        "tail",
+        help="Tail portfolio release history ledger.",
+    )
+    report_portfolio_release_tail.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    report_portfolio_release_tail.add_argument("--history-path", default=DEFAULT_PORTFOLIO_RELEASE_HISTORY)
+    report_portfolio_release_tail.add_argument("--n", type=int, default=5)
+    report_portfolio_release_tail.add_argument("--as-of", default=None)
+
+    report_portfolio_release_stats = report_portfolio_release_sub.add_parser(
+        "stats",
+        help="Stats for portfolio release history ledger.",
+    )
+    report_portfolio_release_stats.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    report_portfolio_release_stats.add_argument("--history-path", default=DEFAULT_PORTFOLIO_RELEASE_HISTORY)
+    report_portfolio_release_stats.add_argument("--days", type=int, default=7)
+    report_portfolio_release_stats.add_argument("--as-of", default=None)
+
+    report_portfolio_release_diff = report_portfolio_release_sub.add_parser(
+        "diff",
+        help="Diff two portfolio release history entries.",
+    )
+    report_portfolio_release_diff.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    report_portfolio_release_diff.add_argument("--history-path", default=DEFAULT_PORTFOLIO_RELEASE_HISTORY)
+    report_portfolio_release_diff.add_argument("--a", default="prev")
+    report_portfolio_release_diff.add_argument("--b", default="latest")
+    report_portfolio_release_diff.add_argument("--as-of", default=None)
 
 
     report_graph = report_sub.add_parser("graph", help="Print dependency graph (text or JSON).")
@@ -1502,6 +1574,43 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             raise SystemExit("portfolio-snapshot requires --write or a subcommand (tail|stats|diff)")
         if args.report_command == "portfolio-health":
+            if args.portfolio_health_command == "tail":
+                out = tail_portfolio_health_history(
+                    history_path=str(args.history_path),
+                    n=int(args.n),
+                    as_of=args.as_of,
+                )
+                if bool(args.json):
+                    sys.stdout.write(json.dumps(out, sort_keys=True))
+                    sys.stdout.write("\n")
+                else:
+                    print(json.dumps(out, indent=2, sort_keys=True))
+                return 0
+            if args.portfolio_health_command == "stats":
+                out = stats_portfolio_health_history(
+                    history_path=str(args.history_path),
+                    days=int(args.days),
+                    as_of=args.as_of,
+                )
+                if bool(args.json):
+                    sys.stdout.write(json.dumps(out, sort_keys=True))
+                    sys.stdout.write("\n")
+                else:
+                    print(json.dumps(out, indent=2, sort_keys=True))
+                return 0
+            if args.portfolio_health_command == "diff":
+                out = diff_portfolio_health_history(
+                    history_path=str(args.history_path),
+                    a=str(args.a),
+                    b=str(args.b),
+                    as_of=args.as_of,
+                )
+                if bool(args.json):
+                    sys.stdout.write(json.dumps(out, sort_keys=True))
+                    sys.stdout.write("\n")
+                else:
+                    print(json.dumps(out, indent=2, sort_keys=True))
+                return 0
             report, exit_code = run_portfolio_health_report(
                 repos=args.repos,
                 repos_file=args.repos_file,
@@ -1521,6 +1630,43 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(json.dumps(report, indent=2, sort_keys=True))
             return int(exit_code)
         if args.report_command == "portfolio-release":
+            if args.portfolio_release_command == "tail":
+                out = tail_portfolio_release_history(
+                    history_path=str(args.history_path),
+                    n=int(args.n),
+                    as_of=args.as_of,
+                )
+                if bool(args.json):
+                    sys.stdout.write(json.dumps(out, sort_keys=True))
+                    sys.stdout.write("\n")
+                else:
+                    print(json.dumps(out, indent=2, sort_keys=True))
+                return 0
+            if args.portfolio_release_command == "stats":
+                out = stats_portfolio_release_history(
+                    history_path=str(args.history_path),
+                    days=int(args.days),
+                    as_of=args.as_of,
+                )
+                if bool(args.json):
+                    sys.stdout.write(json.dumps(out, sort_keys=True))
+                    sys.stdout.write("\n")
+                else:
+                    print(json.dumps(out, indent=2, sort_keys=True))
+                return 0
+            if args.portfolio_release_command == "diff":
+                out = diff_portfolio_release_history(
+                    history_path=str(args.history_path),
+                    a=str(args.a),
+                    b=str(args.b),
+                    as_of=args.as_of,
+                )
+                if bool(args.json):
+                    sys.stdout.write(json.dumps(out, sort_keys=True))
+                    sys.stdout.write("\n")
+                else:
+                    print(json.dumps(out, indent=2, sort_keys=True))
+                return 0
             report, exit_code = run_portfolio_release_report(
                 repos=args.repos,
                 repos_file=args.repos_file,
@@ -1635,6 +1781,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 jobs=int(args.jobs),
                 captured_at=args.captured_at,
                 write_history=not bool(args.no_write_history),
+                apply_step_outputs=args.executive_command == "report",
             )
             if args.executive_command == "report":
                 write_executive_outputs(report, json_path=args.output_json, md_path=args.output_md)

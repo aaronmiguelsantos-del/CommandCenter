@@ -27,6 +27,8 @@ python -m app.main validate
 python -m app.main health --all --strict
 python -m app.main operator portfolio-run --task health --json
 python -m app.main report portfolio-health --json
+python -m app.main report portfolio-health stats --json
+python -m app.main report portfolio-release diff --json --a prev --b latest
 python -m app.main operator executive status --json
 ```
 
