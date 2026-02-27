@@ -2,6 +2,11 @@
 
 Deterministic, local-first operator kernel for multi-system governance.
 
+## Engine Infra Operator Build
+- Canonical version source: `/Users/aaronsantos/Documents/Bootstrapping Engine/version.json`
+- Current release: `v5.0.0`
+- Release notes: `/Users/aaronsantos/Documents/Bootstrapping Engine/docs/RELEASE_NOTES.md`
+
 ## What It Is
 - Registry-driven system governance (`data/registry/systems.json`)
 - Per-system health + strict gate (`health --all --strict`)

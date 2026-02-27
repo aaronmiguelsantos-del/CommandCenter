@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0",
+  "engine": "Engine Infra Operator Build",
+  "version": "5.0.0",
+  "release_tag": "v5.0.0",
+  "release_date": "2026-02-27",
+  "release_notes": "docs/RELEASE_NOTES.md"
+}

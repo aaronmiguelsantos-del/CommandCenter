@@ -1,5 +1,11 @@
 # CLI
 
+## Engine Infra Operator Build release
+
+- Canonical version source: `version.json`
+- Current release: `v5.0.0`
+- Release notes: `docs/RELEASE_NOTES.md`
+
 ## operator portfolio-gate
 
 Runs `operator gate` across multiple repo roots / registries and aggregates results deterministically.

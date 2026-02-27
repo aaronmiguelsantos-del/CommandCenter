@@ -3,7 +3,7 @@
 PY := .venv/bin/python
 PIP := .venv/bin/pip
 
-.PHONY: help venv deps test health health-json health-global log system-list workflow-contract-guard install-hooks portfolio-run-health portfolio-run-release portfolio-run-registry portfolio-health-report portfolio-release-report portfolio-health-tail portfolio-health-stats portfolio-health-diff portfolio-release-tail portfolio-release-stats portfolio-release-diff executive-status executive-report
+.PHONY: help venv deps test health health-json health-global log system-list workflow-contract-guard version-governance-check install-hooks portfolio-run-health portfolio-run-release portfolio-run-registry portfolio-health-report portfolio-release-report portfolio-health-tail portfolio-health-stats portfolio-health-diff portfolio-release-tail portfolio-release-stats portfolio-release-diff executive-status executive-report
 
 help:
 	@echo ""
@@ -29,6 +29,7 @@ help:
 	@echo "  make executive-report Write deterministic executive report artifacts"
 	@echo "  make system-list   Alias for per-system health"
 	@echo "  make workflow-contract-guard Validate workflow lint contracts"
+	@echo "  make version-governance-check Enforce version marker/release metadata contract"
 	@echo "  make install-hooks Configure local git hooks path (.githooks)"
 	@echo ""
 
@@ -97,6 +98,9 @@ executive-report:
 
 workflow-contract-guard:
 	python3 scripts/workflow_contract_guard.py
+
+version-governance-check:
+	python3 scripts/version_drift_guard.py
 
 install-hooks:
 	git config core.hooksPath .githooks
