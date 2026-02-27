@@ -23,6 +23,7 @@ def test_portfolio_operator_gate_export_contract(tmp_path: Path) -> None:
 
     ledger = tmp_path / "portfolio_snapshot_history.jsonl"
     export_dir = tmp_path / "export"
+    ledger_path = tmp_path / "portfolio_snapshot_history.jsonl"
     p = _run(
         [
             "operator",
@@ -37,6 +38,8 @@ def test_portfolio_operator_gate_export_contract(tmp_path: Path) -> None:
             "1",
             "--captured-at",
             "2026-02-22T00:00:00+00:00",
+            "--ledger",
+            str(ledger_path),
             "--export-path",
             str(export_dir),
         ]
