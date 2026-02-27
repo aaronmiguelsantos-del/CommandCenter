@@ -11,6 +11,7 @@ from core.bootstrap import bootstrap_repo
 from core.export import export_bundle
 from core.graph import build_graph, graph_as_json, render_graph_text
 from core.health import compute_and_write_health, compute_health_for_system
+from core.portfolio_execution import run_portfolio_task
 from core.portfolio_gate import run_portfolio_gate
 from core.portfolio_operator_gate import run_portfolio_operator_gate
 from core.portfolio_operator_gate_pretty import render_portfolio_operator_gate_pretty
@@ -337,6 +338,51 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["portfolio-only", "with-repo-gates"],
         default="portfolio-only",
         help="Export mode: portfolio-only writes portfolio_gate.json; with-repo-gates also writes per-repo operator_gate JSON files.",
+    )
+
+    operator_portfolio_run = operator_sub.add_parser(
+        "portfolio-run",
+        help="Run explicit per-repo health/release/registry commands from portfolio policy.",
+    )
+    operator_portfolio_run.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
+    operator_portfolio_run.add_argument(
+        "--task",
+        required=True,
+        choices=["health", "release", "registry"],
+        help="Task to run for each selected repo.",
+    )
+    operator_portfolio_run.add_argument(
+        "--repos",
+        nargs="+",
+        default=None,
+        help="Ad hoc repo roots. Without a repos-map, tasks without explicit policy are skipped.",
+    )
+    operator_portfolio_run.add_argument(
+        "--repos-file",
+        default=None,
+        help="Newline-delimited list of ad hoc repo roots (# comments allowed).",
+    )
+    operator_portfolio_run.add_argument(
+        "--repos-map",
+        default=None,
+        help="Portfolio policy map JSON. Defaults to data/portfolio/repos.json when present.",
+    )
+    operator_portfolio_run.add_argument(
+        "--allow-missing",
+        action="store_true",
+        help="Treat missing repo paths as skipped instead of errors.",
+    )
+    operator_portfolio_run.add_argument(
+        "--max-repos",
+        type=int,
+        default=None,
+        help="Safety valve: cap number of repos processed after map expansion.",
+    )
+    operator_portfolio_run.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="Max concurrent repo task executions. Output remains deterministically sorted.",
     )
 
     operator_gate = operator_sub.add_parser("gate", help="Run strict gate + snapshot write + diff regression check.")
@@ -1430,6 +1476,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fail_fast=bool(args.fail_fast),
                 max_repos=args.max_repos,
                 export_mode=str(args.export_mode),
+            )
+            if bool(args.json):
+                sys.stdout.write(json.dumps(payload, sort_keys=True))
+                sys.stdout.write("\n")
+            else:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            return int(exit_code)
+        if args.operator_command == "portfolio-run":
+            payload, exit_code = run_portfolio_task(
+                task=str(args.task),
+                repos=args.repos,
+                repos_file=args.repos_file,
+                repos_map=args.repos_map,
+                allow_missing=bool(args.allow_missing),
+                max_repos=args.max_repos,
+                jobs=int(args.jobs),
             )
             if bool(args.json):
                 sys.stdout.write(json.dumps(payload, sort_keys=True))

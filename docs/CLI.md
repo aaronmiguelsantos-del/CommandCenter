@@ -63,6 +63,22 @@ Status mapping:
 - `yellow`: regression (exit 3) OR score < 90
 - `green`: clean + score >= 90
 
+## operator portfolio-run (v4.0.0)
+
+Runs explicit per-repo task commands from `data/portfolio/repos.json`.
+
+```bash
+python -m app.main operator portfolio-run --task health --json
+python -m app.main operator portfolio-run --task release --json
+python -m app.main operator portfolio-run --task registry --json
+```
+
+Notes:
+- Uses `data/portfolio/repos.json` by default when present.
+- `--repos` / `--repos-file` create ad hoc repo entries with no policy; tasks without explicit commands are returned as `skipped`.
+- Missing repo paths are typed errors unless `--allow-missing` is set.
+- `preferred_python` supports `{python}` placeholder replacement inside task commands.
+
 ## report portfolio-snapshot (v3.6.0)
 
 Portfolio-level snapshot ledger for `operator portfolio-gate` output.

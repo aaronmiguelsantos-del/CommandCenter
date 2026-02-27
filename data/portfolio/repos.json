@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "repos": [
     {
       "repo_id": "bootstrapping-engine",
@@ -11,6 +11,21 @@
         "strict": true,
         "enforce_sla": true,
         "hide_samples": true
+      },
+      "lifecycle": "active",
+      "group_key": "bootstrapping-engine",
+      "group_role": "primary",
+      "execution_policy": {
+        "health_command": "{python} -m app.main operator gate --json",
+        "release_command": "{python} -m app.main operator gate --json --strict --enforce-sla",
+        "registry_command": "{python} -m app.main validate",
+        "preferred_python": ".venv/bin/python"
+      },
+      "excluded_tasks": [],
+      "task_timeouts_seconds": {
+        "health": 60,
+        "release": 90,
+        "registry": 30
       }
     }
   ]

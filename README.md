@@ -25,6 +25,7 @@ python -m app.main health --all
 python -m app.main report health
 python -m app.main validate
 python -m app.main health --all --strict
+python -m app.main operator portfolio-run --task health --json
 ```
 
 ## UI Quickstart
@@ -51,3 +52,4 @@ pytest -q
 ## Docs
 - `docs/V1_ACCEPTANCE.md`
 - `docs/CLI.md`
+- `docs/PORTFOLIO_POLICY_CONTRACT.md`
