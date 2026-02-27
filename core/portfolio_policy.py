@@ -8,6 +8,10 @@ from typing import Any
 
 PORTFOLIO_REPOS_MAP_SCHEMA_V1 = "1.0"
 PORTFOLIO_REPOS_MAP_SCHEMA_V2 = "1.1"
+SUPPORTED_PORTFOLIO_REPOS_MAP_SCHEMAS = (
+    PORTFOLIO_REPOS_MAP_SCHEMA_V1,
+    PORTFOLIO_REPOS_MAP_SCHEMA_V2,
+)
 DEFAULT_REPOS_MAP_PATH = "data/portfolio/repos.json"
 
 _ALLOWED_ENTRY_KEYS = {
@@ -239,9 +243,9 @@ def load_portfolio_repos_map(path: str) -> list[PortfolioRepo]:
     if not isinstance(payload, dict):
         raise ValueError("repos-map invalid: top-level payload must be an object")
     schema_version = str(payload.get("schema_version", "")).strip()
-    if schema_version not in {PORTFOLIO_REPOS_MAP_SCHEMA_V1, PORTFOLIO_REPOS_MAP_SCHEMA_V2}:
+    if schema_version not in SUPPORTED_PORTFOLIO_REPOS_MAP_SCHEMAS:
         raise ValueError(
-            f"repos-map schema_version drift: {schema_version} not in {[PORTFOLIO_REPOS_MAP_SCHEMA_V1, PORTFOLIO_REPOS_MAP_SCHEMA_V2]}"
+            f"repos-map schema_version drift: {schema_version} not in {list(SUPPORTED_PORTFOLIO_REPOS_MAP_SCHEMAS)}"
         )
     repos_raw = payload.get("repos")
     if not isinstance(repos_raw, list):

@@ -10,12 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, TypedDict
 
+from core.portfolio_policy import SUPPORTED_PORTFOLIO_REPOS_MAP_SCHEMAS
+
 
 # Portfolio Gate Contract
 PORTFOLIO_GATE_SCHEMA_VERSION = "1.1"  # v3.5.0 adds summary + policy_overrides
-REPOS_MAP_SCHEMA_VERSION = "1.0"
-
-
 class RepoPolicyOverrides(TypedDict, total=False):
     strict: bool
     enforce_sla: bool
@@ -137,9 +136,10 @@ def _load_repos_map(path: str) -> list[RepoMapEntry]:
         raise SystemExit(f"repos-map not found: {p}")
 
     payload = json.loads(p.read_text(encoding="utf-8"))
-    if payload.get("schema_version") != REPOS_MAP_SCHEMA_VERSION:
+    schema_version = payload.get("schema_version")
+    if schema_version not in SUPPORTED_PORTFOLIO_REPOS_MAP_SCHEMAS:
         raise SystemExit(
-            f"repos-map schema_version drift: {payload.get('schema_version')} != {REPOS_MAP_SCHEMA_VERSION}"
+            f"repos-map schema_version drift: {schema_version} not in {list(SUPPORTED_PORTFOLIO_REPOS_MAP_SCHEMAS)}"
         )
 
     repos = payload.get("repos")

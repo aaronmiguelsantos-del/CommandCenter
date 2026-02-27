@@ -24,3 +24,8 @@ Artifacts list in bundle_meta is pinned and deterministic.
 - Snapshot writes are deterministic under `--captured-at`
 - Diff is deterministic via stable selection prev/latest
 - Payload keys are stable; schema bump required on changes
+
+## Repo map compatibility
+- `operator portfolio-operator-gate` accepts `repos-map` schema versions `1.0` and `1.1`
+- Repo-map schema evolution is owned by `/Users/aaronsantos/Documents/Bootstrapping Engine/core/portfolio_policy.py`
+- Any future `repos-map` schema bump must be wired through both policy loading and portfolio gate tests before release

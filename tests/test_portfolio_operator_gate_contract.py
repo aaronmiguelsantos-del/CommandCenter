@@ -84,3 +84,50 @@ def test_portfolio_operator_gate_export_contract(tmp_path: Path) -> None:
     assert isinstance(pog["diff_prev_latest"], dict)
     assert isinstance(pog["regression_reasons"], list)
     assert isinstance(pog["artifacts"], dict)
+
+
+def test_portfolio_operator_gate_accepts_repos_map_schema_v1_1(tmp_path: Path) -> None:
+    repo_a = tmp_path / "repo_a"
+    p = _run(["failcase", "create", "--path", str(repo_a), "--mode", "clean"])
+    assert p.returncode == 0, p.stderr
+
+    repos_map = tmp_path / "repos.json"
+    repos_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.1",
+                "repos": [
+                    {
+                        "repo_id": "repo_a",
+                        "path": str(repo_a),
+                        "owner": "Aaron",
+                        "required": True,
+                        "notes": "schema v1.1 acceptance",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    p = _run(
+        [
+            "operator",
+            "portfolio-operator-gate",
+            "--json",
+            "--repos-map",
+            str(repos_map),
+            "--ledger",
+            str(tmp_path / "portfolio_operator_gate_v11.jsonl"),
+            "--hide-samples",
+            "--jobs",
+            "1",
+        ]
+    )
+    assert p.returncode == 0, p.stderr
+    payload = json.loads(p.stdout)
+    assert payload["schema_version"] == "1.0"
+    assert payload["strict_failed"] is False
+    assert payload["regression_detected"] is False
