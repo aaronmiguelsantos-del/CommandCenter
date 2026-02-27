@@ -29,3 +29,4 @@ reports/executive_steps/
 
 # Pytest cache
 .pytest_cache/
+data/snapshots/
